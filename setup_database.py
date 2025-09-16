@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """
-ValerIA Database Setup Script
-SQLAlchemy ORM-based database schema creation for payroll onboarding automation
-Based on ValerIA_Onboarding_Automation_Spec.md
+ValerIA Simplified Database Setup Script
+SQLAlchemy ORM-based database schema - Core essentials only
+Focuses on AI processing workflow, payroll data, and Models 111/190 reporting
 """
 
 import os
 from datetime import datetime
-from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON, Numeric,
     String, Text, Index, UniqueConstraint, create_engine, text
 )
-from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMPTZ
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.sql import func
 
 Base = declarative_base()
 
-# Database Models
+# Core Database Models
 
 class Client(Base):
+    """Client companies using payroll services"""
     __tablename__ = 'clients'
 
     id = Column(Integer, primary_key=True)
@@ -32,119 +32,88 @@ class Client(Base):
     ccc_ss = Column(Text)  # Código Cuenta Cotización Seguridad Social
     contact_emails = Column(ARRAY(Text))
     active = Column(Boolean, default=True)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
-    contacts = relationship("ClientContact", back_populates="client", cascade="all, delete-orphan")
     employees = relationship("Employee", back_populates="client", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="client", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="client", cascade="all, delete-orphan")
-    model111_quarterly = relationship("Model111Quarterly", back_populates="client", cascade="all, delete-orphan")
-    model190_annual_detail = relationship("Model190AnnualDetail", back_populates="client", cascade="all, delete-orphan")
-    model190_annual_summary = relationship("Model190AnnualSummary", back_populates="client", cascade="all, delete-orphan")
-
-
-class ClientContact(Base):
-    __tablename__ = 'client_contacts'
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
-    full_name = Column(Text, nullable=False)
-    email = Column(Text)
-    phone = Column(Text)
-    role = Column(Text)  # Account Manager, HR, etc.
-    is_primary = Column(Boolean, default=False)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
-
-    # Relationships
-    client = relationship("Client", back_populates="contacts")
 
 
 class Employee(Base):
+    """Employees of client companies"""
     __tablename__ = 'employees'
 
     id = Column(Integer, primary_key=True)
     client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+
+    # Identity fields
     full_name = Column(Text, nullable=False)
-    nif = Column(Text)
+    documento = Column(Text, nullable=False)  # DNI/NIE (from vida laboral CSV)
+    nif = Column(Text)  # May be same as documento
     nss = Column(Text)  # Número Seguridad Social
     date_of_birth = Column(Date)
+
+    # Status
     active = Column(Boolean, default=True)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     client = relationship("Client", back_populates="employees")
-    employment_periods = relationship("EmploymentPeriod", back_populates="employee", cascade="all, delete-orphan")
     payrolls = relationship("Payroll", back_populates="employee", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="employee", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="employee", cascade="all, delete-orphan")
-    model190_annual_detail = relationship("Model190AnnualDetail", back_populates="employee", cascade="all, delete-orphan")
-
-
-class EmploymentPeriod(Base):
-    __tablename__ = 'employment_periods'
-
-    id = Column(Integer, primary_key=True)
-    employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
-    alta_date = Column(Date, nullable=False)
-    baja_date = Column(Date)
-    contract_type = Column(Text)  # Indefinido, Temporal, etc.
-    jornada_type = Column(Text)   # Completa, Parcial
-    jornada_pct = Column(Numeric(5, 2))  # Percentage of full-time
-    notes = Column(Text)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
-
-    # Relationships
-    employee = relationship("Employee", back_populates="employment_periods")
-    payrolls = relationship("Payroll", back_populates="employment_period")
 
 
 class NominaConcept(Base):
+    """Spanish payroll concept codes dictionary"""
     __tablename__ = 'nomina_concepts'
 
     concept_code = Column(Text, primary_key=True)
     short_desc = Column(Text, nullable=False)
     long_desc = Column(Text)
     tributa_irpf = Column(Boolean, default=False)
-    cotiza_cc = Column(Boolean, default=False)  # Cotiza Contingencias Comunes
-    cotiza_cp = Column(Boolean, default=False)  # Cotiza Contingencias Profesionales
+    cotiza_ss = Column(Boolean, default=False)  # Simplified - cotiza Social Security
     en_especie = Column(Boolean, default=False)
-    default_group = Column(Text)  # ordinaria, variable, especie, deduccion, indemnizacion
-    model190_box = Column(Text)   # For Model 190 mapping
-    is_devengo = Column(Boolean, default=True)
-    is_deduccion = Column(Boolean, default=False)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    default_group = Column(Text)  # ordinaria, variable, especie, deduccion
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     payroll_lines = relationship("PayrollLine", back_populates="concept")
 
 
 class Document(Base):
+    """Documents with simple local file storage"""
     __tablename__ = 'documents'
 
     id = Column(Integer, primary_key=True)
     client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'))
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'))
-    document_type = Column(Text, nullable=False)  # payslip, contract, ID, etc.
+
+    # Document info
+    document_type = Column(Text, nullable=False)  # payslip, contract, etc.
     original_filename = Column(Text)
-    storage_uri = Column(Text, nullable=False)
+    file_path = Column(Text, nullable=False)  # Relative path: documents/client_123/employee_456/file.pdf
     file_hash = Column(Text)
     file_size_bytes = Column(Integer)
-    mime_type = Column(Text)
-    received_at = Column(TIMESTAMPTZ, default=func.now())
-    processed_at = Column(TIMESTAMPTZ)
+
+    # Processing status
+    received_at = Column(DateTime(timezone=True), default=func.now())
+    processed_at = Column(DateTime(timezone=True))
     status = Column(Text, default='received')  # received, processing, processed, error
+
+    # AI extraction results
     ocr_text = Column(Text)
-    extraction_metadata = Column(JSON)
-    error_details = Column(Text)
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    extraction_result = Column(JSON)  # Structured data extracted by AI
+    extraction_confidence = Column(Numeric(3, 2))  # 0.00 to 1.00
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     client = relationship("Client", back_populates="documents")
@@ -153,57 +122,50 @@ class Document(Base):
 
 
 class Payroll(Base):
+    """Payroll data extracted from payslips"""
     __tablename__ = 'payrolls'
 
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
-    employment_period_id = Column(Integer, ForeignKey('employment_periods.id', ondelete='SET NULL'))
+
+    # Period info
     period_start = Column(Date, nullable=False)
     period_end = Column(Date, nullable=False)
     pay_date = Column(Date)
-    # Generated columns - SQLAlchemy doesn't support GENERATED ALWAYS AS, so we'll use properties
     period_year = Column(Integer, nullable=False)
     period_month = Column(Integer, nullable=False)
     period_quarter = Column(Integer, nullable=False)
 
-    # Totals
+    # Core amounts for Models 111/190
     bruto_total = Column(Numeric(10, 2))
     neto_total = Column(Numeric(10, 2))
 
-    # IRPF bases and withholdings
+    # IRPF data (critical for Models 111/190)
     irpf_base_monetaria = Column(Numeric(10, 2))
     irpf_base_especie = Column(Numeric(10, 2))
     irpf_retencion_monetaria = Column(Numeric(10, 2))
     irpf_retencion_especie = Column(Numeric(10, 2))
 
-    # Social Security
+    # Social Security (simplified)
     ss_trabajador_total = Column(Numeric(10, 2))
-    base_cc = Column(Numeric(10, 2))  # Base Contingencias Comunes (excludes overtime)
-    base_cp = Column(Numeric(10, 2))  # Base Contingencias Profesionales (includes overtime)
 
-    # Special items
-    indemnizacion = Column(Numeric(10, 2))
-
-    # Additional data
-    extra_json = Column(JSON)
-
-    # Audit
-    extraction_confidence = Column(Numeric(3, 2))  # 0.00 to 1.00
-    validated_at = Column(TIMESTAMPTZ)
+    # Validation
+    extraction_confidence = Column(Numeric(3, 2))
+    validated_at = Column(DateTime(timezone=True))
     validated_by = Column(Text)
 
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     employee = relationship("Employee", back_populates="payrolls")
-    employment_period = relationship("EmploymentPeriod", back_populates="payrolls")
     payroll_lines = relationship("PayrollLine", back_populates="payroll", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="payroll", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="payroll")
 
 
 class PayrollLine(Base):
+    """Individual line items from payslips"""
     __tablename__ = 'payroll_lines'
 
     id = Column(Integer, primary_key=True)
@@ -211,12 +173,10 @@ class PayrollLine(Base):
     concept_code = Column(Text, ForeignKey('nomina_concepts.concept_code'))
     concept_desc = Column(Text, nullable=False)
 
-    # Flags (can override concept defaults)
+    # Simplified flags
     is_devengo = Column(Boolean, default=True)
     is_deduccion = Column(Boolean, default=False)
     tributa_irpf = Column(Boolean, default=False)
-    cotiza_cc = Column(Boolean, default=False)
-    cotiza_cp = Column(Boolean, default=False)
     en_especie = Column(Boolean, default=False)
 
     # Amounts
@@ -224,8 +184,8 @@ class PayrollLine(Base):
     importe_devengo = Column(Numeric(10, 2))
     importe_deduccion = Column(Numeric(10, 2))
 
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     payroll = relationship("Payroll", back_populates="payroll_lines")
@@ -233,6 +193,7 @@ class PayrollLine(Base):
 
 
 class ChecklistItem(Base):
+    """Track missing documents and reminders"""
     __tablename__ = 'checklist_items'
 
     id = Column(Integer, primary_key=True)
@@ -240,31 +201,28 @@ class ChecklistItem(Base):
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='SET NULL'))
 
-    # What's required
+    # What's needed
     item_type = Column(Text, nullable=False)  # payslip, contract, etc.
     description = Column(Text, nullable=False)
     period_year = Column(Integer)
     period_month = Column(Integer)
     due_date = Column(Date)
 
-    # Status tracking
-    status = Column(Text, default='pending')  # pending, received, processed, validated, missing
+    # Status
+    status = Column(Text, default='pending')  # pending, received, processed, validated
     priority = Column(Text, default='normal')  # high, normal, low
 
-    # Communication
+    # Communication tracking
     reminder_count = Column(Integer, default=0)
-    last_reminder_sent_at = Column(TIMESTAMPTZ)
-    next_reminder_due_at = Column(TIMESTAMPTZ)
+    last_reminder_sent_at = Column(DateTime(timezone=True))
+    next_reminder_due_at = Column(DateTime(timezone=True))
 
     # Links
     document_id = Column(Integer, ForeignKey('documents.id', ondelete='SET NULL'))
 
-    # Notes
     notes = Column(Text)
-    assigned_to = Column(Text)
-
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     client = relationship("Client", back_populates="checklist_items")
@@ -272,448 +230,129 @@ class ChecklistItem(Base):
     payroll = relationship("Payroll", back_populates="checklist_items")
 
 
-class Model111Quarterly(Base):
-    __tablename__ = 'model111_quarterly'
+# Simple Document Storage Utilities
 
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
-    year = Column(Integer, nullable=False)
-    quarter = Column(Integer, nullable=False)
-
-    # Aggregated totals
-    base_irpf_total = Column(Numeric(12, 2))
-    retencion_irpf_total = Column(Numeric(12, 2))
-
-    # Metadata
-    employee_count = Column(Integer)
-    payroll_count = Column(Integer)
-    generated_at = Column(TIMESTAMPTZ, default=func.now())
-    reviewed_at = Column(TIMESTAMPTZ)
-    reviewed_by = Column(Text)
-
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint('client_id', 'year', 'quarter', name='uq_model111_client_year_quarter'),
-    )
-
-    # Relationships
-    client = relationship("Client", back_populates="model111_quarterly")
+def ensure_documents_directory():
+    """Create documents directory structure if it doesn't exist"""
+    base_dir = "./documents"
+    os.makedirs(base_dir, exist_ok=True)
+    return base_dir
 
 
-class Model190AnnualDetail(Base):
-    __tablename__ = 'model190_annual_detail'
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
-    employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
-    year = Column(Integer, nullable=False)
-
-    # Employee info
-    employee_nif = Column(Text)
-    employee_full_name = Column(Text)
-
-    # Annual totals per employee
-    percepciones_monetarias = Column(Numeric(12, 2))  # Monetary perceptions
-    percepciones_especie = Column(Numeric(12, 2))     # In-kind perceptions
-    percepciones_it = Column(Numeric(12, 2))          # IT perceptions (no company complements)
-    retenciones_irpf = Column(Numeric(12, 2))         # IRPF withholdings
-    indemnizaciones = Column(Numeric(12, 2))          # Severance payments
-    ss_trabajador_informative = Column(Numeric(12, 2)) # SS worker contribution (informative)
-
-    # Metadata
-    payroll_count = Column(Integer)
-    generated_at = Column(TIMESTAMPTZ, default=func.now())
-    reviewed_at = Column(TIMESTAMPTZ)
-    reviewed_by = Column(Text)
-
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint('client_id', 'employee_id', 'year', name='uq_model190_detail_client_employee_year'),
-    )
-
-    # Relationships
-    client = relationship("Client", back_populates="model190_annual_detail")
-    employee = relationship("Employee", back_populates="model190_annual_detail")
+def get_client_document_path(client_id: int) -> str:
+    """Get document directory path for a client"""
+    base_dir = ensure_documents_directory()
+    client_dir = os.path.join(base_dir, f"client_{client_id}")
+    os.makedirs(client_dir, exist_ok=True)
+    return client_dir
 
 
-class Model190AnnualSummary(Base):
-    __tablename__ = 'model190_annual_summary'
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
-    year = Column(Integer, nullable=False)
-
-    # Summary totals
-    total_employees = Column(Integer)
-    total_percepciones_monetarias = Column(Numeric(12, 2))
-    total_percepciones_especie = Column(Numeric(12, 2))
-    total_percepciones_it = Column(Numeric(12, 2))
-    total_retenciones_irpf = Column(Numeric(12, 2))
-    total_indemnizaciones = Column(Numeric(12, 2))
-
-    # Metadata
-    generated_at = Column(TIMESTAMPTZ, default=func.now())
-    reviewed_at = Column(TIMESTAMPTZ)
-    reviewed_by = Column(Text)
-
-    created_at = Column(TIMESTAMPTZ, default=func.now())
-    updated_at = Column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint('client_id', 'year', name='uq_model190_summary_client_year'),
-    )
-
-    # Relationships
-    client = relationship("Client", back_populates="model190_annual_summary")
+def get_employee_document_path(client_id: int, employee_id: int) -> str:
+    """Get document directory path for an employee"""
+    client_dir = get_client_document_path(client_id)
+    employee_dir = os.path.join(client_dir, f"employee_{employee_id}")
+    os.makedirs(employee_dir, exist_ok=True)
+    return employee_dir
 
 
-# Seed data for nomina_concepts
-NOMINA_CONCEPTS_SEED = [
-    # Ordinary monetary concepts (001-399)
-    {
-        'concept_code': '001',
-        'short_desc': 'Salario base',
-        'long_desc': 'Salario base mensual',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '002',
-        'short_desc': 'Antigüedad',
-        'long_desc': 'Plus por antigüedad',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '003',
-        'short_desc': 'Pagas extras',
-        'long_desc': 'Pagas extraordinarias prorrateadas',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '120',
-        'short_desc': 'Plus convenio',
-        'long_desc': 'Plus de convenio colectivo',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '130',
-        'short_desc': 'Plus nocturnidad',
-        'long_desc': 'Plus por trabajo nocturno',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '140',
-        'short_desc': 'Plus festivos',
-        'long_desc': 'Plus por trabajo en festivos',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    # Variable concepts (300-399)
-    {
-        'concept_code': '301',
-        'short_desc': 'Horas extra',
-        'long_desc': 'Horas extraordinarias',
-        'tributa_irpf': True,
-        'cotiza_cc': False,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'variable',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '302',
-        'short_desc': 'Comisiones',
-        'long_desc': 'Comisiones sobre ventas',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'variable',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '310',
-        'short_desc': 'Productividad',
-        'long_desc': 'Incentivos por productividad',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'variable',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '320',
-        'short_desc': 'Kilometraje',
-        'long_desc': 'Indemnización kilometraje coche propio',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'variable',
-        'model190_box': 'exempt'
-    },
-    # Vacation and special payments (400-499)
-    {
-        'concept_code': '401',
-        'short_desc': 'Vacaciones',
-        'long_desc': 'Vacaciones no disfrutadas',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'ordinaria',
-        'model190_box': 'monetary'
-    },
-    {
-        'concept_code': '450',
-        'short_desc': 'IT común',
-        'long_desc': 'Incapacidad Temporal contingencias comunes',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'it',
-        'model190_box': 'it'
-    },
-    {
-        'concept_code': '451',
-        'short_desc': 'IT profesional',
-        'long_desc': 'Incapacidad Temporal contingencias profesionales',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'it',
-        'model190_box': 'it'
-    },
-    # In-kind benefits (600-699)
-    {
-        'concept_code': '601',
-        'short_desc': 'Seguro médico',
-        'long_desc': 'Seguro médico privado',
-        'tributa_irpf': True,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': True,
-        'default_group': 'especie',
-        'model190_box': 'in_kind'
-    },
-    {
-        'concept_code': '610',
-        'short_desc': 'Dietas exentas',
-        'long_desc': 'Dietas de viaje exentas de tributación',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'especie',
-        'model190_box': 'exempt'
-    },
-    {
-        'concept_code': '620',
-        'short_desc': 'Ticket restaurant',
-        'long_desc': 'Ticket restaurant',
-        'tributa_irpf': True,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': True,
-        'default_group': 'especie',
-        'model190_box': 'in_kind'
-    },
-    {
-        'concept_code': '630',
-        'short_desc': 'Coche empresa',
-        'long_desc': 'Uso privado vehículo empresa',
-        'tributa_irpf': True,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': True,
-        'default_group': 'especie',
-        'model190_box': 'in_kind'
-    },
-    {
-        'concept_code': '640',
-        'short_desc': 'Formación',
-        'long_desc': 'Gastos de formación',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'especie',
-        'model190_box': 'exempt'
-    },
-    # Deductions (700-799)
-    {
-        'concept_code': '700',
-        'short_desc': 'IRPF',
-        'long_desc': 'Retención IRPF',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '730',
-        'short_desc': 'SS Trabajador CC',
-        'long_desc': 'Seguridad Social Contingencias Comunes',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '731',
-        'short_desc': 'SS Trabajador CP',
-        'long_desc': 'Seguridad Social Contingencias Profesionales',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '732',
-        'short_desc': 'SS Trabajador Desempleo',
-        'long_desc': 'Seguridad Social Desempleo',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '733',
-        'short_desc': 'SS Trabajador FP',
-        'long_desc': 'Seguridad Social Formación Profesional',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '740',
-        'short_desc': 'Anticipos',
-        'long_desc': 'Anticipos de nómina',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    {
-        'concept_code': '750',
-        'short_desc': 'Embargo',
-        'long_desc': 'Retención judicial',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'deduccion',
-        'model190_box': None,
-        'is_devengo': False,
-        'is_deduccion': True
-    },
-    # Severance payments (900-999)
-    {
-        'concept_code': '900',
-        'short_desc': 'Indemnización despido',
-        'long_desc': 'Indemnización por despido',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'indemnizacion',
-        'model190_box': 'severance'
-    },
-    {
-        'concept_code': '901',
-        'short_desc': 'Indemnización traslado',
-        'long_desc': 'Indemnización por traslado',
-        'tributa_irpf': False,
-        'cotiza_cc': False,
-        'cotiza_cp': False,
-        'en_especie': False,
-        'default_group': 'indemnizacion',
-        'model190_box': 'severance'
-    },
-    {
-        'concept_code': '910',
-        'short_desc': 'Finiquito',
-        'long_desc': 'Liquidación al cese',
-        'tributa_irpf': True,
-        'cotiza_cc': True,
-        'cotiza_cp': True,
-        'en_especie': False,
-        'default_group': 'indemnizacion',
-        'model190_box': 'severance'
+def save_document_file(file_content: bytes, filename: str, client_id: int, employee_id: int = None) -> str:
+    """Save document file and return relative path"""
+    if employee_id:
+        doc_dir = get_employee_document_path(client_id, employee_id)
+    else:
+        doc_dir = get_client_document_path(client_id)
+
+    file_path = os.path.join(doc_dir, filename)
+
+    with open(file_path, 'wb') as f:
+        f.write(file_content)
+
+    # Return relative path for database storage
+    relative_path = os.path.relpath(file_path, ".")
+    return relative_path
+
+
+def load_document_file(file_path: str) -> bytes:
+    """Load document file from relative path"""
+    with open(file_path, 'rb') as f:
+        return f.read()
+
+
+# Basic Vida Laboral CSV Import
+
+def parse_vida_laboral_csv_simple(csv_content: str, client_id: int) -> dict:
+    """Simple vida laboral CSV parser - core functionality only"""
+    import csv
+    from io import StringIO
+
+    result = {
+        'employees': {},
+        'employment_data': [],
+        'errors': []
     }
+
+    try:
+        csv_reader = csv.DictReader(StringIO(csv_content))
+
+        for row in csv_reader:
+            documento = row.get('documento', '').strip()
+            nombre = row.get('nombre', '').strip()
+            situacion = row.get('situacion', '').strip()
+
+            if not documento or not nombre:
+                continue
+
+            # Store unique employees
+            if documento not in result['employees']:
+                result['employees'][documento] = {
+                    'documento': documento,
+                    'full_name': nombre,
+                    'client_id': client_id
+                }
+
+            # Store employment events for checklist generation
+            if situacion in ['ALTA', 'BAJA']:
+                result['employment_data'].append({
+                    'documento': documento,
+                    'situacion': situacion,
+                    'f_real_sit': row.get('f_real_sit', '').strip()
+                })
+
+    except Exception as e:
+        result['errors'].append(f"Error parsing CSV: {str(e)}")
+
+    return result
+
+
+# Seed Data
+
+BASIC_NOMINA_CONCEPTS = [
+    # Basic salary concepts
+    {'concept_code': '001', 'short_desc': 'Salario base', 'tributa_irpf': True, 'cotiza_ss': True, 'default_group': 'ordinaria'},
+    {'concept_code': '002', 'short_desc': 'Antigüedad', 'tributa_irpf': True, 'cotiza_ss': True, 'default_group': 'ordinaria'},
+    {'concept_code': '120', 'short_desc': 'Plus convenio', 'tributa_irpf': True, 'cotiza_ss': True, 'default_group': 'ordinaria'},
+    {'concept_code': '301', 'short_desc': 'Horas extra', 'tributa_irpf': True, 'cotiza_ss': True, 'default_group': 'variable'},
+
+    # In-kind benefits
+    {'concept_code': '601', 'short_desc': 'Seguro médico', 'tributa_irpf': True, 'cotiza_ss': False, 'en_especie': True, 'default_group': 'especie'},
+    {'concept_code': '620', 'short_desc': 'Ticket restaurant', 'tributa_irpf': True, 'cotiza_ss': False, 'en_especie': True, 'default_group': 'especie'},
+
+    # Deductions
+    {'concept_code': '700', 'short_desc': 'IRPF', 'tributa_irpf': False, 'cotiza_ss': False, 'default_group': 'deduccion'},
+    {'concept_code': '730', 'short_desc': 'SS Trabajador', 'tributa_irpf': False, 'cotiza_ss': False, 'default_group': 'deduccion'}
 ]
 
 
+# Database Setup Functions
+
 def create_database_engine(database_url: str = None):
-    """Create database engine from environment variables or provided URL"""
+    """Create database engine from environment or default values"""
     if database_url is None:
-        # Get connection parameters from environment or use defaults matching docker-compose.yml
         db_host = os.getenv('POSTGRES_HOST', 'localhost')
         db_port = os.getenv('POSTGRES_PORT', '5432')
         db_name = os.getenv('POSTGRES_DB', 'valeria')
         db_user = os.getenv('POSTGRES_USER', 'valeria')
-        db_password = os.getenv('POSTGRES_PASSWORD', 'changeme')
-
+        db_password = os.getenv('POSTGRES_PASSWORD', 'YourStrongPassw0rd!')
         database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
     engine = create_engine(database_url, echo=True)
@@ -721,55 +360,30 @@ def create_database_engine(database_url: str = None):
 
 
 def create_tables(engine):
-    """Create all tables in the database"""
+    """Create all tables"""
     print("Creating database tables...")
     Base.metadata.create_all(engine)
     print("✓ Database tables created successfully!")
 
 
 def create_indexes(engine):
-    """Create additional indexes for performance"""
+    """Create performance indexes"""
     print("Creating database indexes...")
 
     indexes = [
-        # Employee indexes
         Index('idx_employees_client_id', Employee.client_id),
+        Index('idx_employees_documento', Employee.documento),
         Index('idx_employees_active', Employee.active),
-        Index('idx_employees_nif', Employee.nif),
-
-        # Employment periods
-        Index('idx_employment_periods_employee_id', EmploymentPeriod.employee_id),
-        Index('idx_employment_periods_dates', EmploymentPeriod.alta_date, EmploymentPeriod.baja_date),
-
-        # Documents
         Index('idx_documents_client_id', Document.client_id),
         Index('idx_documents_employee_id', Document.employee_id),
         Index('idx_documents_status', Document.status),
-        Index('idx_documents_type', Document.document_type),
-
-        # Payrolls
         Index('idx_payrolls_employee_id', Payroll.employee_id),
         Index('idx_payrolls_period', Payroll.period_year, Payroll.period_month),
-        Index('idx_payrolls_client_period', Payroll.employee_id, Payroll.period_year, Payroll.period_month),
         Index('idx_payrolls_validated', Payroll.validated_at),
-
-        # Payroll lines
         Index('idx_payroll_lines_payroll_id', PayrollLine.payroll_id),
-        Index('idx_payroll_lines_concept', PayrollLine.concept_code),
-
-        # Checklist items
         Index('idx_checklist_items_client_id', ChecklistItem.client_id),
-        Index('idx_checklist_items_employee_id', ChecklistItem.employee_id),
         Index('idx_checklist_items_status', ChecklistItem.status),
         Index('idx_checklist_items_due_date', ChecklistItem.due_date),
-        Index('idx_checklist_items_reminder_due', ChecklistItem.next_reminder_due_at),
-
-        # Model 111
-        Index('idx_model111_client_period', Model111Quarterly.client_id, Model111Quarterly.year, Model111Quarterly.quarter),
-
-        # Model 190
-        Index('idx_model190_detail_client_year', Model190AnnualDetail.client_id, Model190AnnualDetail.year),
-        Index('idx_model190_summary_client_year', Model190AnnualSummary.client_id, Model190AnnualSummary.year),
     ]
 
     with engine.connect() as conn:
@@ -784,26 +398,24 @@ def create_indexes(engine):
 
 
 def seed_nomina_concepts(engine):
-    """Insert seed data for nomina_concepts table"""
+    """Insert basic nomina concepts"""
     print("Seeding nomina_concepts table...")
 
     Session = sessionmaker(bind=engine)
     session = Session()
 
     try:
-        # Check if concepts already exist
         existing_count = session.query(NominaConcept).count()
         if existing_count > 0:
             print(f"✓ Nomina concepts already exist ({existing_count} concepts), skipping seed.")
             return
 
-        # Insert seed data
-        for concept_data in NOMINA_CONCEPTS_SEED:
+        for concept_data in BASIC_NOMINA_CONCEPTS:
             concept = NominaConcept(**concept_data)
             session.add(concept)
 
         session.commit()
-        print(f"✓ Seeded {len(NOMINA_CONCEPTS_SEED)} nomina concepts successfully!")
+        print(f"✓ Seeded {len(BASIC_NOMINA_CONCEPTS)} nomina concepts successfully!")
 
     except Exception as e:
         session.rollback()
@@ -813,32 +425,12 @@ def seed_nomina_concepts(engine):
         session.close()
 
 
-def create_views(engine):
-    """Create useful database views"""
+def create_basic_views(engine):
+    """Create essential views for reporting"""
     print("Creating database views...")
 
     views = [
-        # Active employees with current employment period
-        """
-        CREATE OR REPLACE VIEW active_employees_current AS
-        SELECT
-            e.*,
-            ep.alta_date,
-            ep.baja_date,
-            ep.contract_type,
-            ep.jornada_type,
-            ep.jornada_pct,
-            c.fiscal_name as client_name,
-            c.nif as client_nif
-        FROM employees e
-        JOIN clients c ON e.client_id = c.id
-        LEFT JOIN employment_periods ep ON e.id = ep.employee_id
-            AND ep.baja_date IS NULL  -- Current employment period
-        WHERE e.active = true
-            AND c.active = true;
-        """,
-
-        # Payroll completeness by employee and year
+        # Payroll completeness for missing document detection
         """
         CREATE OR REPLACE VIEW payroll_completeness AS
         SELECT
@@ -848,20 +440,18 @@ def create_views(engine):
             years.period_year,
             COUNT(p.id) as payrolls_received,
             12 - COUNT(p.id) as payrolls_missing,
-            CASE WHEN COUNT(p.id) = 12 THEN true ELSE false END as complete_year,
-            ARRAY_AGG(p.period_month ORDER BY p.period_month) as months_received
+            CASE WHEN COUNT(p.id) = 12 THEN true ELSE false END as complete_year
         FROM employees e
         CROSS JOIN generate_series(2023, EXTRACT(YEAR FROM NOW())::int) as years(period_year)
-        LEFT JOIN payrolls p ON e.id = p.employee_id
-            AND p.period_year = years.period_year
+        LEFT JOIN payrolls p ON e.id = p.employee_id AND p.period_year = years.period_year
         WHERE e.active = true
         GROUP BY e.client_id, e.id, e.full_name, years.period_year
         ORDER BY e.client_id, e.full_name, years.period_year;
         """,
 
-        # Model 111 quarterly aggregations (ready to generate)
+        # Model 111 quarterly data
         """
-        CREATE OR REPLACE VIEW model111_quarterly_ready AS
+        CREATE OR REPLACE VIEW model111_quarterly_data AS
         SELECT
             c.id as client_id,
             c.fiscal_name,
@@ -870,14 +460,12 @@ def create_views(engine):
             p.period_quarter,
             COUNT(DISTINCT e.id) as employee_count,
             COUNT(p.id) as payroll_count,
-            SUM(p.irpf_base_monetaria + COALESCE(p.irpf_base_especie, 0)) as base_irpf_total,
-            SUM(p.irpf_retencion_monetaria + COALESCE(p.irpf_retencion_especie, 0)) as retencion_irpf_total
+            SUM(COALESCE(p.irpf_base_monetaria, 0) + COALESCE(p.irpf_base_especie, 0)) as base_irpf_total,
+            SUM(COALESCE(p.irpf_retencion_monetaria, 0) + COALESCE(p.irpf_retencion_especie, 0)) as retencion_irpf_total
         FROM clients c
         JOIN employees e ON c.id = e.client_id
         JOIN payrolls p ON e.id = p.employee_id
-        WHERE c.active = true
-            AND e.active = true
-            AND p.validated_at IS NOT NULL  -- Only validated payrolls
+        WHERE c.active = true AND e.active = true AND p.validated_at IS NOT NULL
         GROUP BY c.id, c.fiscal_name, c.nif, p.period_year, p.period_quarter
         ORDER BY c.fiscal_name, p.period_year, p.period_quarter;
         """
@@ -894,51 +482,42 @@ def create_views(engine):
 
 
 def setup_timezone(engine):
-    """Set database timezone to Europe/Madrid as specified"""
+    """Set database timezone"""
     print("Setting database timezone to Europe/Madrid...")
-
     with engine.connect() as conn:
         conn.execute(text("SET timezone = 'Europe/Madrid';"))
-
     print("✓ Database timezone set successfully!")
 
 
 def main():
     """Main setup function"""
-    print("🚀 Starting ValerIA Database Setup...")
+    print("🚀 Starting ValerIA Simplified Database Setup...")
     print("=" * 50)
 
-    # Create database engine
     try:
+        # Create database engine
         engine = create_database_engine()
         print("✓ Database connection established!")
-    except Exception as e:
-        print(f"✗ Failed to connect to database: {e}")
-        print("Make sure PostgreSQL is running and environment variables are set correctly.")
-        return 1
 
-    try:
-        # Setup timezone
+        # Setup
         setup_timezone(engine)
-
-        # Create tables
         create_tables(engine)
-
-        # Create indexes
         create_indexes(engine)
-
-        # Seed data
         seed_nomina_concepts(engine)
+        create_basic_views(engine)
 
-        # Create views
-        create_views(engine)
+        # Create documents directory
+        ensure_documents_directory()
+        print("✓ Documents directory created!")
 
         print("=" * 50)
-        print("🎉 ValerIA Database Setup Completed Successfully!")
-        print("\nNext steps:")
-        print("1. Start your n8n workflows")
-        print("2. Configure your environment variables")
-        print("3. Begin onboarding clients")
+        print("🎉 ValerIA Simplified Database Setup Completed!")
+        print("\nCore features ready:")
+        print("- AI document processing workflow")
+        print("- Payroll data extraction")
+        print("- Missing document detection")
+        print("- Models 111/190 reporting")
+        print("- Local file storage")
 
         return 0
 

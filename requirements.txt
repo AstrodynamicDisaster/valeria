@@ -1,3 +1,12 @@
+# Core database requirements
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
+
+# PDF generation (choose one)
+weasyprint>=60.0  # Preferred - pure Python, no external dependencies
+# pdfkit>=1.0.0   # Alternative - requires wkhtmltopdf system installation
+
+# Optional: For AI vision model integration
+# openai>=1.0.0
+# anthropic>=0.8.0
