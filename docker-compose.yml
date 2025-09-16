@@ -1,0 +1,96 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: valeria-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  # stirling-pdf:
+  #   image: docker.stirlingpdf.com/stirlingtools/stirling-pdf:latest
+  #   ports:
+  #     - '8080:8080'
+  #   volumes:
+  #     - ./StirlingPDF/trainingData:/usr/share/tessdata # Required for extra OCR languages
+  #     - ./StirlingPDF/extraConfigs:/configs
+  #     - ./StirlingPDF/customFiles:/customFiles/
+  #     - ./StirlingPDF/logs:/logs/
+  #     - ./StirlingPDF/pipeline:/pipeline/
+  #   environment:
+  #     - DISABLE_ADDITIONAL_FEATURES=false
+  #     - LANGS=en_GB
+  #   networks:
+  #     - backend
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: valeria-n8n
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "5678:5678"
+    environment:
+
+      # Auth & base URL
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PROTOCOL: ${N8N_PROTOCOL}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
+      N8N_BINARY_DATA_MODE: ${N8N_BINARY_DATA_MODE}
+
+      # LLM integration
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - files_data:/files
+    networks:
+      - backend
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: valeria-metabase
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "3000:3000"
+    # environment:
+    #   MB_LOG_LEVEL: debug
+    networks:
+      - backend
+
+# Optional OCR helper (CLI-based) — integrate via volume or HTTP wrapper if needed
+#  ocr:
+#    image: ghcr.io/ocrmypdf/ocrmypdf:latest
+#    container_name: valeria-ocr
+#    volumes:
+#      - ./ocr/in:/in
+#      - ./ocr/out:/out
+#    command: ["--help"]
+#    networks:
+#      - backend
+
+volumes:
+  postgres_data:
+  n8n_data:
+  files_data:
+
+networks:
+  backend:
+    driver: bridge
