@@ -233,5 +233,6 @@ def process_payroll_file(file_path, openai_api_key):
     return employees
 
 if __name__ == "__main__":
-    key = "[REMOVED_API_KEY]"
+    # Load key with the OPENAI_API_KEY environment variable
+    key = os.getenv("OPENAI_API_KEY")
     employees = process_payroll_file("T_Dec.pdf", key)
