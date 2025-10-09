@@ -29,6 +29,9 @@ from setup_database import (
     NominaConcept, Document, Base
 )
 from process_payroll import extract_payroll_info
+from production_models import (
+    create_production_engine, ProductionCompany, ProductionEmployee
+)
 
 
 class ValeriaAgent:
@@ -36,9 +39,26 @@ class ValeriaAgent:
 
     def __init__(self, openai_api_key: str):
         self.client = OpenAI(api_key=openai_api_key)
+
+        # Local database (for payrolls and optionally for companies/employees in dev mode)
         self.engine = create_database_engine(echo=False)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
+
+        # Production database (read-only, for companies/employees when enabled)
+        self.use_production_data = os.getenv('USE_PRODUCTION_DATA', 'false').lower() == 'true'
+        self.prod_session = None
+        if self.use_production_data:
+            try:
+                prod_engine = create_production_engine(echo=False)
+                ProdSession = sessionmaker(bind=prod_engine)
+                self.prod_session = ProdSession()
+                print("✓ Connected to production database (read-only mode)")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not connect to production database: {e}")
+                print("   Falling back to local data")
+                self.use_production_data = False
+
         self.processing_state = {
             'vida_laboral_processed': False,
             'client_id': None,
@@ -168,6 +188,159 @@ class ValeriaAgent:
                 }
             }
         ]
+
+    # ========================================
+    # Helper Methods for Dual Data Sources
+    # ========================================
+
+    def _get_company(self, cif: str = None, company_id: str = None, name: str = None):
+        """
+        Get company from either production or local database based on configuration.
+        Returns: Local Client object (converted from production if needed)
+        """
+        if self.use_production_data and self.prod_session:
+            # Query production database
+            if cif:
+                prod_company = self.prod_session.query(ProductionCompany).filter_by(cif=cif).first()
+            elif company_id:
+                prod_company = self.prod_session.query(ProductionCompany).filter_by(id=company_id).first()
+            elif name:
+                prod_company = self.prod_session.query(ProductionCompany).filter_by(name=name).first()
+            else:
+                return None
+
+            if prod_company:
+                # Convert production company to local Client structure (but don't save to DB)
+                # This allows the rest of the code to work with a consistent interface
+                local_company = Client(
+                    id=prod_company.id,
+                    name=prod_company.name,
+                    cif=prod_company.cif,
+                    fiscal_address=prod_company.fiscal_address,
+                    email=prod_company.email,
+                    phone=prod_company.phone,
+                    begin_date=prod_company.begin_date,
+                    managed_by=prod_company.managed_by,
+                    status=prod_company.status,
+                    legal_repr_first_name=prod_company.legal_repr_first_name,
+                    legal_repr_last_name1=prod_company.legal_repr_last_name1,
+                    legal_repr_last_name2=prod_company.legal_repr_last_name2,
+                    legal_repr_nif=prod_company.legal_repr_nif,
+                    legal_repr_role=prod_company.legal_repr_role,
+                    legal_repr_phone=prod_company.legal_repr_phone,
+                    legal_repr_email=prod_company.legal_repr_email
+                )
+                return local_company
+            return None
+        else:
+            # Query local database
+            if cif:
+                return self.session.query(Client).filter_by(cif=cif).first()
+            elif company_id:
+                return self.session.query(Client).filter_by(id=company_id).first()
+            elif name:
+                return self.session.query(Client).filter_by(name=name).first()
+            return None
+
+    def _get_employee(self, identity_card_number: str = None, employee_id: int = None, company_id: str = None):
+        """
+        Get employee from either production or local database based on configuration.
+        Returns: Local Employee object (converted from production if needed)
+        """
+        if self.use_production_data and self.prod_session:
+            # Query production database
+            if identity_card_number and company_id:
+                prod_employee = self.prod_session.query(ProductionEmployee).filter_by(
+                    identity_card_number=identity_card_number,
+                    company_id=company_id
+                ).first()
+            elif identity_card_number:
+                prod_employee = self.prod_session.query(ProductionEmployee).filter_by(
+                    identity_card_number=identity_card_number
+                ).first()
+            elif employee_id:
+                prod_employee = self.prod_session.query(ProductionEmployee).filter_by(id=employee_id).first()
+            else:
+                return None
+
+            if prod_employee:
+                # Convert production employee to local Employee structure
+                local_employee = Employee(
+                    id=int(prod_employee.id),  # Convert from Numeric to int
+                    company_id=prod_employee.company_id,
+                    first_name=prod_employee.first_name,
+                    last_name=prod_employee.last_name,
+                    last_name2=prod_employee.last_name2,
+                    identity_card_number=prod_employee.identity_card_number,
+                    identity_doc_type=prod_employee.identity_doc_type,
+                    ss_number=prod_employee.ss_number,
+                    birth_date=prod_employee.birth_date,
+                    address=prod_employee.address,
+                    phone=prod_employee.phone,
+                    mail=prod_employee.mail,
+                    begin_date=prod_employee.begin_date,
+                    end_date=prod_employee.end_date,
+                    salary=float(prod_employee.salary) if prod_employee.salary else None,
+                    role=prod_employee.role,
+                    employee_status=prod_employee.employee_status,
+                    active=(prod_employee.employee_status == 'Active')
+                )
+                return local_employee
+            return None
+        else:
+            # Query local database
+            if identity_card_number and company_id:
+                return self.session.query(Employee).filter_by(
+                    identity_card_number=identity_card_number,
+                    company_id=company_id
+                ).first()
+            elif identity_card_number:
+                return self.session.query(Employee).filter_by(identity_card_number=identity_card_number).first()
+            elif employee_id:
+                return self.session.query(Employee).filter_by(id=employee_id).first()
+            return None
+
+    def _list_employees_for_company(self, company_id: str):
+        """
+        List all employees for a company from either production or local database.
+        Returns: List of local Employee objects
+        """
+        if self.use_production_data and self.prod_session:
+            # Query production database
+            prod_employees = self.prod_session.query(ProductionEmployee).filter_by(company_id=company_id).all()
+
+            # Convert to local Employee objects
+            local_employees = []
+            for prod_emp in prod_employees:
+                local_emp = Employee(
+                    id=int(prod_emp.id),
+                    company_id=prod_emp.company_id,
+                    first_name=prod_emp.first_name,
+                    last_name=prod_emp.last_name,
+                    last_name2=prod_emp.last_name2,
+                    identity_card_number=prod_emp.identity_card_number,
+                    identity_doc_type=prod_emp.identity_doc_type,
+                    ss_number=prod_emp.ss_number,
+                    birth_date=prod_emp.birth_date,
+                    address=prod_emp.address,
+                    phone=prod_emp.phone,
+                    mail=prod_emp.mail,
+                    begin_date=prod_emp.begin_date,
+                    end_date=prod_emp.end_date,
+                    salary=float(prod_emp.salary) if prod_emp.salary else None,
+                    role=prod_emp.role,
+                    employee_status=prod_emp.employee_status,
+                    active=(prod_emp.employee_status == 'Active')
+                )
+                local_employees.append(local_emp)
+            return local_employees
+        else:
+            # Query local database
+            return self.session.query(Employee).filter_by(company_id=company_id).all()
+
+    # ========================================
+    # Main Processing Methods
+    # ========================================
 
     def process_vida_laboral_csv(self, file_path: str, client_name: Optional[str] = None) -> Dict[str, Any]:
         """Process vida laboral CSV file - reuses existing database models"""
@@ -331,12 +504,12 @@ class ValeriaAgent:
                         "message": "Please process vida laboral CSV first or specify client_id"
                     }
 
-            # Get all employees for this client with employment periods (updated field names)
-            employees = self.session.query(Employee).filter_by(
-                company_id=client_id  # Updated from client_id
-            ).filter(
-                Employee.begin_date.isnot(None)  # Updated from employment_start_date
-            ).all()
+            # Get all employees for this client with employment periods
+            # Use helper method to get from appropriate data source
+            employees = self._list_employees_for_company(client_id)
+
+            # Filter to only those with begin dates
+            employees = [emp for emp in employees if emp.begin_date is not None]
 
             if not employees:
                 return {
