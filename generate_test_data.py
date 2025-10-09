@@ -5,15 +5,18 @@ Generates synthetic Spanish payroll data for testing and development
 
 Generates:
 1. Vida laboral CSV files with realistic Spanish employment data
-2. Spanish payslip PDFs for AI vision model testing
+2. Spanish payslip PDFs for AI vision model testing (1-3 months per employee)
 3. Intentional gaps in payslips for missing document detection testing
 """
 
 import os
 import csv
 import random
+import re
+import zipfile
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple
+from pathlib import Path
 import tempfile
 
 # Spanish Names and Data
@@ -215,22 +218,37 @@ class VidaLaboralGenerator:
         return date(birth_year, birth_month, birth_day)
 
     def generate_employment_events(self, employees: List[Dict], year: int = 2025) -> List[Dict]:
-        """Generate ALTA/BAJA employment events for employees"""
+        """Generate ALTA/BAJA employment events for employees (constrained to last 3 months)"""
         events = []
 
+        # Calculate 3-month window from today
+        today = date.today()
+        three_months_ago = today.replace(day=1)  # Start of current month
+        for _ in range(3):  # Go back 3 months
+            if three_months_ago.month == 1:
+                three_months_ago = three_months_ago.replace(year=three_months_ago.year - 1, month=12)
+            else:
+                three_months_ago = three_months_ago.replace(month=three_months_ago.month - 1)
+
         for employee in employees:
-            # Determine employment scenario
+            # Determine employment scenario (simplified for 3-month window)
             scenario = random.choices([
-                'full_year',      # Employed all year
-                'hired_mid_year', # Hired during the year
-                'left_mid_year',  # Left during the year
-                'hired_and_left', # Hired and left same year
-                'vacation_after_baja'  # Had unpaid vacation after leaving
-            ], weights=[60, 15, 15, 5, 5])[0]
+                'recent_hire',    # Hired in last 3 months
+                'recent_leave',   # Left in last 3 months
+                'short_employment' # Hired and left within 3 months
+            ], weights=[50, 30, 20])[0]
 
-            if scenario == 'full_year':
-                # ALTA at beginning of year (or previous year)
-                alta_date = date(year - 1, 1, 1)
+            # Helper function to generate random date within date range
+            def random_date_in_window(start_date: date, end_date: date) -> date:
+                days_diff = (end_date - start_date).days
+                if days_diff <= 0:
+                    return start_date
+                random_days = random.randint(0, days_diff)
+                return start_date + timedelta(days=random_days)
+
+            if scenario == 'recent_hire':
+                # ALTA within last 3 months, still active
+                alta_date = random_date_in_window(three_months_ago, today)
                 events.append({
                     'documento': employee['documento'],
                     'nombre': employee['nombre'],
@@ -240,22 +258,13 @@ class VidaLaboralGenerator:
                     'f_real_sit': alta_date.strftime('%d-%m-%Y')
                 })
 
-            elif scenario == 'hired_mid_year':
-                # ALTA during the year
-                alta_date = date(year, random.randint(1, 10), random.randint(1, 28))
-                events.append({
-                    'documento': employee['documento'],
-                    'nombre': employee['nombre'],
-                    'situacion': 'ALTA',
-                    'f_real_alta': alta_date.strftime('%d-%m-%Y'),
-                    'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
-                    'f_real_sit': alta_date.strftime('%d-%m-%Y')
-                })
-
-            elif scenario == 'left_mid_year':
-                # ALTA in previous year, BAJA during current year
-                alta_date = date(year - 1, random.randint(1, 12), random.randint(1, 28))
-                baja_date = date(year, random.randint(3, 12), random.randint(1, 28))
+            elif scenario == 'recent_leave':
+                # ALTA before 3-month window, BAJA within last 3 months
+                alta_date = random_date_in_window(
+                    three_months_ago - timedelta(days=random.randint(30, 180)),  # 1-6 months before
+                    three_months_ago
+                )
+                baja_date = random_date_in_window(three_months_ago, today)
 
                 events.extend([
                     {
@@ -276,10 +285,10 @@ class VidaLaboralGenerator:
                     }
                 ])
 
-            elif scenario == 'hired_and_left':
-                # ALTA and BAJA in same year
-                alta_date = date(year, random.randint(1, 8), random.randint(1, 28))
-                baja_date = date(year, random.randint(alta_date.month + 1, 12), random.randint(1, 28))
+            elif scenario == 'short_employment':
+                # ALTA and BAJA both within last 3 months
+                alta_date = random_date_in_window(three_months_ago, today - timedelta(days=15))
+                baja_date = random_date_in_window(alta_date + timedelta(days=1), today)
 
                 events.extend([
                     {
@@ -300,44 +309,11 @@ class VidaLaboralGenerator:
                     }
                 ])
 
-            elif scenario == 'vacation_after_baja':
-                # ALTA, BAJA, then VAC.RETRIB.NO
-                alta_date = date(year, random.randint(1, 6), random.randint(1, 28))
-                baja_date = date(year, random.randint(alta_date.month + 1, 10), random.randint(1, 28))
-                vacation_start = baja_date + timedelta(days=1)
-                vacation_end = vacation_start + timedelta(days=random.randint(5, 15))
-
-                events.extend([
-                    {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
-                        'situacion': 'ALTA',
-                        'f_real_alta': alta_date.strftime('%d-%m-%Y'),
-                        'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
-                        'f_real_sit': alta_date.strftime('%d-%m-%Y')
-                    },
-                    {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
-                        'situacion': 'BAJA',
-                        'f_real_alta': alta_date.strftime('%d-%m-%Y'),
-                        'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
-                        'f_real_sit': baja_date.strftime('%d-%m-%Y')
-                    },
-                    {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
-                        'situacion': 'VAC.RETRIB.NO',
-                        'f_real_alta': '',
-                        'f_efecto_alta': '',
-                        'f_real_sit': vacation_end.strftime('%d-%m-%Y')
-                    }
-                ])
 
         return events
 
-    def generate_vida_laboral_csv(self, ccc_code: str = None, num_employees: int = 5, year: int = 2025) -> str:
-        """Generate complete vida laboral CSV content"""
+    def generate_vida_laboral_csv(self, ccc_code: str = None, num_employees: int = 5, year: int = 2025) -> Tuple[str, List[Dict]]:
+        """Generate complete vida laboral CSV content and return employment events"""
         if not ccc_code:
             ccc_code = self.data_gen.generate_ccc_code()
 
@@ -355,7 +331,7 @@ class VidaLaboralGenerator:
             line = f"{event['documento']},{event['nombre']},{event['situacion']},{event['f_real_alta']},{event['f_efecto_alta']},{event['f_real_sit']}"
             output.append(line)
 
-        return '\n'.join(output)
+        return '\n'.join(output), events
 
 
 class PayslipGenerator:
@@ -953,6 +929,39 @@ class PayslipGenerator:
         return html
 
 
+def create_payslips_zip(payslips_dir: str, year: int, company_name: str) -> str:
+    """Create ZIP file containing all PDF payslips"""
+
+    # Clean company name for filename
+    clean_company = re.sub(r'[^\w\s-]', '', company_name).strip()
+    clean_company = re.sub(r'[-\s]+', '_', clean_company)
+
+    zip_filename = f"nominas_{clean_company}_{year}.zip"
+    zip_path = os.path.join(payslips_dir, zip_filename)
+
+    # Find all PDF files in the payslips directory
+    pdf_files = list(Path(payslips_dir).glob("*.pdf"))
+
+    if not pdf_files:
+        print("⚠️  No PDF files found to include in ZIP")
+        return zip_path
+
+    print(f"📦 Creating ZIP archive: {zip_filename}")
+    print(f"   Including {len(pdf_files)} PDF files...")
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for pdf_file in pdf_files:
+            zipf.write(pdf_file, pdf_file.name)
+            print(f"   ✓ Added: {pdf_file.name}")
+
+    # Get ZIP file size for reporting
+    zip_size = os.path.getsize(zip_path)
+    zip_size_mb = zip_size / (1024 * 1024)
+
+    print(f"✅ ZIP archive created: {zip_filename} ({zip_size_mb:.1f} MB)")
+    return zip_path
+
+
 def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 4, year: int = 2025):
     """Generate complete test dataset with vida laboral and payslips"""
 
@@ -976,7 +985,7 @@ def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 
 
     # Generate vida laboral CSV
     print("\n📄 Generating vida laboral CSV...")
-    vida_csv_content = vida_gen.generate_vida_laboral_csv(ccc_code, num_employees, year)
+    vida_csv_content, employment_events = vida_gen.generate_vida_laboral_csv(ccc_code, num_employees, year)
 
     # Save vida laboral CSV
     vida_csv_path = os.path.join(output_dir, f"vida_laboral_{ccc_code}_{year}.csv")
@@ -1018,30 +1027,74 @@ def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 
     for employee_doc, employee in employees_data.items():
         print(f"   📋 {employee['normal_name']}")
 
-        # Create employee directory
-        employee_dir = os.path.join(payslips_dir, f"employee_{employee_doc}")
-        os.makedirs(employee_dir, exist_ok=True)
+        # Calculate which months this employee was employed based on vida laboral events
+        employed_months = set()
 
-        # Generate payslips for most months (with some gaps)
-        months_to_generate = random.sample(range(1, 13), random.randint(8, 11))  # 8-11 months
+        # Find employment periods for this employee from vida laboral events
+        employee_events = [e for e in employment_events if e['documento'] == employee_doc]
 
-        for month in months_to_generate:
+        for event in employee_events:
+            if event['situacion'] == 'ALTA':
+                # Find corresponding BAJA event or assume still employed
+                alta_date_str = event['f_real_alta']
+                baja_event = next((e for e in employee_events if e['situacion'] == 'BAJA' and e['f_real_alta'] == alta_date_str), None)
+
+                # Parse dates
+                alta_date = datetime.strptime(alta_date_str, '%d-%m-%Y').date()
+                if baja_event:
+                    baja_date = datetime.strptime(baja_event['f_real_sit'], '%d-%m-%Y').date()
+                else:
+                    baja_date = date.today()  # Still employed
+
+                # Add all months between alta and baja
+                current_date = alta_date.replace(day=1)  # Start of month
+                while current_date <= baja_date and current_date.year == year:
+                    employed_months.add(current_date.month)
+                    if current_date.month == 12:
+                        current_date = current_date.replace(year=current_date.year + 1, month=1)
+                    else:
+                        current_date = current_date.replace(month=current_date.month + 1)
+
+        # Generate payslips for only some of the employed months (to create missing gaps)
+        if employed_months:
+            # Randomly select 60-80% of employed months to generate payslips for
+            num_to_generate = max(1, int(len(employed_months) * random.uniform(0.6, 0.8)))
+            months_to_generate = random.sample(sorted(employed_months), min(num_to_generate, len(employed_months)))
+        else:
+            months_to_generate = []
+
+        for month in sorted(months_to_generate):
             # Generate accurate payroll data
             payroll_data = payslip_gen.generate_accurate_payslip_data(employee, company_data, year, month)
 
             # Generate accurate HTML payslip
             html_content = payslip_gen.generate_accurate_payslip_html(payroll_data)
 
-            # Save HTML file (can be converted to PDF later with tools like wkhtmltopdf)
-            filename = f"nomina_{year}_{month:02d}.html"
-            file_path = os.path.join(employee_dir, filename)
+            # Generate smart descriptive filename
+            first_name = employee['normal_name'].split()[0].upper()
+            last_name = '_'.join(employee['normal_name'].split()[1:]).upper()
+            clean_doc = employee_doc.replace('/', '_').replace('\\', '_')  # Handle NIE with slashes
+
+            filename = f"{first_name}_{last_name}_{clean_doc}_{year}_{month:02d}.html"
+            file_path = os.path.join(payslips_dir, filename)  # Flat structure in payslips dir
 
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-        missing_months = set(range(1, 13)) - set(months_to_generate)
+        missing_months = employed_months - set(months_to_generate)
+        print(f"     📅 Employment months: {sorted(employed_months) if employed_months else 'None'}")
+        print(f"     ✅ Generated payslips: {sorted(months_to_generate) if months_to_generate else 'None'}")
         if missing_months:
-            print(f"     ⚠️  Missing months: {sorted(missing_months)} (for testing)")
+            print(f"     ⚠️  Missing payslips: {sorted(missing_months)} (for missing payslip detection testing)")
+        else:
+            print(f"     ✅ All employment months covered")
+
+    print(f"\n💡 To convert HTML payslips to PDF and create ZIP archive, run:")
+    print(f"   python convert_payslips_to_pdf.py --test-data-dir {output_dir}")
+    print(f"   # This will create PDFs and then you can run the ZIP creation")
+
+    print(f"\n🔧 Or to create ZIP from existing PDFs:")
+    print(f"   python -c \"from generate_test_data import create_payslips_zip; create_payslips_zip('{payslips_dir}', {year}, '{company_name}')\"")
 
     # Generate summary report
     summary_path = os.path.join(output_dir, "test_data_summary.txt")
@@ -1055,6 +1108,11 @@ def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 
         f.write(f"Files generated:\n")
         f.write(f"- vida_laboral_{ccc_code}_{year}.csv\n")
         f.write(f"- payslips/ (directory with HTML payslips)\n\n")
+        f.write(f"Missing Payslip Testing:\n")
+        f.write(f"- Employment periods constrained to last 3 months from today\n")
+        f.write(f"- Payslips generated for all 12 months, but only some will match employment periods\n")
+        f.write(f"- This creates realistic gaps for testing missing payslip detection\n")
+        f.write(f"- Use generate_missing_payslips_report() to analyze gaps\n\n")
         f.write(f"Employee details:\n")
 
         for employee_doc, employee in employees_data.items():

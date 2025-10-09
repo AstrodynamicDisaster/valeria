@@ -2,22 +2,25 @@ import json
 import pandas as pd
 from openai import OpenAI
 import base64
-from PIL import Image
-import io
 import pathlib
 import os
+import re
 
 def extract_payroll_info(file_path, openai_api_key):
     """
-    Extract employee names and ID numbers from payroll files (image, PDF, Excel)
+    Extract complete payroll information from Spanish payslip files (image, PDF, Excel)
     using OpenAI's vision model.
-    
+
     Args:
         file_path (str): Path to the file (image, PDF, or Excel)
         openai_api_key (str): OpenAI API key
-    
+
     Returns:
-        list: List of dictionaries containing employee names and IDs
+        list: List of dictionaries containing complete payroll data including:
+              - Employee information (name, ID)
+              - Pay period dates
+              - Monetary amounts (gross, net, taxes, deductions)
+              - Individual concept lines with codes and amounts
     """
     try:
         client = OpenAI(api_key=openai_api_key)
@@ -122,32 +125,192 @@ def _process_image_with_vision(image_path, client):
         print(f"Error processing image: {e}")
         return []
 
+def _clean_json_response(content: str) -> str:
+    """Clean and preprocess OpenAI response for JSON parsing"""
+    # Remove markdown code blocks
+    if "```" in content:
+        content_parts = content.split("```")
+        if len(content_parts) >= 2:
+            json_content = content_parts[1]
+            # Remove language identifier like "json\n"
+            if json_content.lower().startswith(("json", "JSON")):
+                json_content = json_content[4:].lstrip()
+            content = json_content
+
+    # Remove leading/trailing whitespace and newlines
+    content = content.strip()
+
+    # Find JSON boundaries more reliably
+    start_idx = content.find('[')
+    end_idx = content.rfind(']') + 1
+
+    if start_idx != -1 and end_idx > start_idx:
+        content = content[start_idx:end_idx]
+
+    return content
+
+def _repair_json(json_str: str) -> str:
+    """Repair common JSON formatting issues"""
+    # Replace single quotes with double quotes for property names and values
+    # This regex handles property names like 'name': and values like 'value'
+    json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)  # Property names
+    json_str = re.sub(r":\s*'([^']*)'", r': "\1"', json_str)  # String values
+
+    # Fix unquoted property names (word followed by colon)
+    json_str = re.sub(r'(\w+)(\s*):', r'"\1"\2:', json_str)
+
+    # Remove trailing commas before } or ]
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+
+    # Fix common boolean/null values
+    json_str = re.sub(r'\btrue\b', 'true', json_str, flags=re.IGNORECASE)
+    json_str = re.sub(r'\bfalse\b', 'false', json_str, flags=re.IGNORECASE)
+    json_str = re.sub(r'\bnull\b', 'null', json_str, flags=re.IGNORECASE)
+
+    return json_str
+
+def _robust_json_parse(content: str) -> list:
+    """Robust JSON parsing with multiple fallback strategies"""
+    # Step 1: Clean the response
+    cleaned_content = _clean_json_response(content)
+
+    # Step 2: Try standard JSON parsing
+    try:
+        return json.loads(cleaned_content)
+    except json.JSONDecodeError:
+        pass
+
+    # Step 3: Try with repairs
+    try:
+        repaired_content = _repair_json(cleaned_content)
+        return json.loads(repaired_content)
+    except json.JSONDecodeError:
+        pass
+
+    # Step 4: Try more aggressive cleaning
+    try:
+        # Remove comments and extra text
+        lines = cleaned_content.split('\n')
+        json_lines = []
+        in_json = False
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith('[') or in_json:
+                in_json = True
+                json_lines.append(line)
+                if line.endswith(']'):
+                    break
+
+        if json_lines:
+            fallback_content = '\n'.join(json_lines)
+            repaired_fallback = _repair_json(fallback_content)
+            return json.loads(repaired_fallback)
+    except json.JSONDecodeError:
+        pass
+
+    # Step 5: Last resort - try to extract individual objects
+    try:
+        # Look for individual object patterns
+        object_pattern = r'\{[^{}]*\}'
+        objects = re.findall(object_pattern, cleaned_content)
+
+        parsed_objects = []
+        for obj_str in objects:
+            try:
+                repaired_obj = _repair_json(obj_str)
+                parsed_obj = json.loads(repaired_obj)
+                parsed_objects.append(parsed_obj)
+            except json.JSONDecodeError:
+                continue
+
+        if parsed_objects:
+            return parsed_objects
+    except Exception:
+        pass
+
+    # If all else fails, return empty list with helpful error message
+    print(f"⚠️  JSON parsing failed after all repair attempts")
+    print(f"📝 First 200 chars: {content[:200]}...")
+    print(f"💡 Consider improving the OpenAI prompt or adding more repair patterns")
+    return []
+
 def _call_openai_vision(client, base64_image):
-    """Call OpenAI vision model to extract employee information"""
+    """Call OpenAI vision model to extract complete payroll information"""
     try:
         prompt = """
-        Analyze this payroll document and identify which type it is:
+        Analyze this Spanish payroll document (nómina) and extract ALL payroll information.
 
-        TYPE 1: PAYROLL SUMMARY - A table/grid format where columns or rows contain multiple employee names with payroll concepts and amounts.
-        TYPE 2: INDIVIDUAL PAYROLL - A single employee's payroll information for a specific period.
+        EXTRACT THE FOLLOWING DATA:
 
-        For TYPE 1 (PAYROLL SUMMARY):
-        - Extract all employee names from column headers, rows, or any labeled sections
-        - If employee IDs are present, include them
-        - Look for sections labeled "Employee", "Name", "Worker", etc.
-        - Ignore monetary values, dates, and payroll concept labels
-        
-        For TYPE 2 (INDIVIDUAL PAYROLL):
-        - Extract the name of the single employee featured in this document
-        - Look for employee ID, identification number, SSN, or similar identifiers
-        - The employee name might be in headers, title sections, or recipient fields
-        
-        Return results in this JSON format: 
-        [{"name": "Employee Full Name", "id": "ID123"}, ...]
-        
-        If no ID is found for an employee, omit the "id" field.
-        Exclude headers, labels, company names, and non-employee text.
-        If you're uncertain whether text represents an employee name, include it and note your uncertainty in the name field.
+        1. EMPLOYEE INFORMATION:
+        - Full name
+        - Document ID (DNI/NIE)
+        - Employee number/code if present
+
+        2. PAY PERIOD:
+        - Period start date (fecha inicio)
+        - Period end date (fecha fin)
+        - Pay date (fecha pago)
+        - Month and year
+
+        3. MONETARY AMOUNTS:
+        - Total gross (bruto total)
+        - Total net (neto a percibir)
+        - IRPF withholding base (base IRPF)
+        - IRPF withholding amount (retención IRPF)
+        - Social Security employee contribution (cuota SS trabajador)
+
+        4. PAYROLL CONCEPT LINES:
+        For each concept line, extract:
+        - Concept code (if visible)
+        - Concept description (e.g., "Salario base", "Plus convenio", "IRPF", etc.)
+        - Amount (positive for earnings, negative for deductions)
+        - Whether it's earnings (devengos) or deductions (deducciones)
+
+        Return results in this JSON format:
+        [
+          {
+            "name": "Employee Full Name",
+            "id": "12345678A",
+            "period_start": "2025-01-01",
+            "period_end": "2025-01-31",
+            "pay_date": "2025-01-31",
+            "period_month": 1,
+            "period_year": 2025,
+            "bruto_total": 1500.00,
+            "neto_total": 1200.00,
+            "irpf_base": 1500.00,
+            "irpf_retencion": 225.00,
+            "ss_trabajador": 75.00,
+            "concept_lines": [
+              {
+                "concept_code": "001",
+                "concept_desc": "Salario base",
+                "amount": 1200.00,
+                "is_devengo": true,
+                "is_deduccion": false
+              },
+              {
+                "concept_code": "700",
+                "concept_desc": "IRPF",
+                "amount": -225.00,
+                "is_devengo": false,
+                "is_deduccion": true
+              }
+            ]
+          }
+        ]
+
+        IMPORTANT NOTES:
+        - Extract ALL visible amounts and concepts
+        - Use negative amounts for deductions (IRPF, Social Security, etc.)
+        - Include concept codes if visible (typically 3-digit numbers)
+        - If dates are not clear, use reasonable defaults for the month/year visible
+        - If multiple employees are on one document, create separate objects for each
+        - RETURN ONLY VALID JSON - no explanations, comments, or markdown formatting
+        - Use double quotes for all strings and property names
+        - Ensure all JSON objects are properly closed with braces and brackets
         """
         
         response = client.chat.completions.create(
@@ -173,40 +336,9 @@ def _call_openai_vision(client, base64_image):
         )
         
         content = response.choices[0].message.content
-        print(f"Raw response: {content}")
-        
-        # Try to parse JSON from the response
-        try:
-            # First, check if response is wrapped in markdown code blocks
-            if "```" in content:
-                # Extract content between code blocks
-                content_parts = content.split("```")
-                # The JSON is typically in the second part (after first ```)
-                if len(content_parts) >= 2:
-                    # Remove potential "json\n" or "JSON\n" header that might be included
-                    json_content = content_parts[1]
-                    if json_content.lower().startswith("json"):
-                        json_content = json_content[4:].lstrip()
-                    # Now parse the actual JSON content
-                    employees = json.loads(json_content)
-                    return employees
-            
-            # Fallback to the original method if no markdown code blocks
-            start_idx = content.find('[')
-            end_idx = content.rfind(']') + 1
-            
-            if start_idx != -1 and end_idx != 0:
-                json_str = content[start_idx:end_idx]
-                employees = json.loads(json_str)
-                return employees
-            else:
-                print("No valid JSON found in response")
-                return []
-                
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse JSON from response: {content}")
-            print(f"JSON error: {e}")
-            return []
+
+        # Use robust JSON parsing with multiple fallback strategies
+        return _robust_json_parse(content)
             
     except Exception as e:
         print(f"Error calling OpenAI vision API: {e}")

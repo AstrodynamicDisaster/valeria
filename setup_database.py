@@ -58,6 +58,10 @@ class Employee(Base):
     # Status
     active = Column(Boolean, default=True)
 
+    # Employment period (from vida laboral CSV)
+    employment_start_date = Column(Date)  # f_real_alta
+    employment_end_date = Column(Date)    # f_real_sit if status is BAJA
+
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
@@ -345,7 +349,7 @@ BASIC_NOMINA_CONCEPTS = [
 
 # Database Setup Functions
 
-def create_database_engine(database_url: str = None):
+def create_database_engine(database_url: str = None, echo: bool = True):
     """Create database engine from environment or default values"""
     if database_url is None:
         db_host = os.getenv('POSTGRES_HOST', 'localhost')
@@ -355,7 +359,7 @@ def create_database_engine(database_url: str = None):
         db_password = os.getenv('POSTGRES_PASSWORD', 'YourStrongPassw0rd!')
         database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
-    engine = create_engine(database_url, echo=True)
+    engine = create_engine(database_url, echo=echo)
     return engine
 
 

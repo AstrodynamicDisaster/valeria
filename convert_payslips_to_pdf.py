@@ -112,6 +112,35 @@ def convert_payslips_to_pdf(test_data_dir: str = "./test_data"):
                 rel_path = os.path.relpath(pdf_file, test_data_dir)
                 print(f"   - {rel_path}")
 
+        # Create ZIP archive if we have PDFs
+        try:
+            from generate_test_data import create_payslips_zip
+
+            # Try to determine company name from directory structure or use default
+            company_name = "Test_Company"
+            try:
+                # Look for summary file to get company name
+                summary_file = os.path.join(test_data_dir, "test_data_summary.txt")
+                if os.path.exists(summary_file):
+                    with open(summary_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if line.startswith("Company:"):
+                                company_name = line.split(":", 1)[1].strip()
+                                break
+            except:
+                pass
+
+            # Create ZIP archive
+            print(f"\n📦 Creating ZIP archive...")
+            zip_path = create_payslips_zip(payslips_dir, 2025, company_name)
+
+        except ImportError:
+            print(f"\n💡 To create ZIP archive manually, run:")
+            print(f"   python -c \"from generate_test_data import create_payslips_zip; create_payslips_zip('{payslips_dir}', 2025, 'Company_Name')\"")
+        except Exception as e:
+            print(f"\n⚠️  Could not create ZIP archive: {e}")
+            print(f"   You can create it manually using the generate_test_data.py functions")
+
     if failed_conversions > 0:
         print(f"\n⚠️  Some conversions failed. Try installing:")
         print(f"   pip install weasyprint")

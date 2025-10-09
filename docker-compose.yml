@@ -70,8 +70,11 @@ services:
       - postgres
     ports:
       - "3000:3000"
-    # environment:
-    #   MB_LOG_LEVEL: debug
+    environment:
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
     networks:
       - backend
 
@@ -90,6 +93,7 @@ volumes:
   postgres_data:
   n8n_data:
   files_data:
+  metabase_data:
 
 networks:
   backend:
