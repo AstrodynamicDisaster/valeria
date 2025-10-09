@@ -15,7 +15,6 @@ Alternative (if weasyprint has issues):
 
 import os
 import glob
-from pathlib import Path
 
 
 def convert_with_weasyprint(html_path: str, pdf_path: str) -> bool:
@@ -96,18 +95,18 @@ def convert_payslips_to_pdf(test_data_dir: str = "./test_data"):
         else:
             failed_conversions += 1
 
-    print(f"\n✅ Conversion complete!")
+    print("\n✅ Conversion complete!")
     print(f"   ✓ Successful: {successful_conversions}")
     print(f"   ❌ Failed: {failed_conversions}")
 
     if successful_conversions > 0:
-        print(f"\n💡 PDF payslips are ready for AI vision model testing!")
+        print("\n💡 PDF payslips are ready for AI vision model testing!")
         print(f"   📁 Location: {payslips_dir}")
 
         # Show sample structure
         sample_files = glob.glob(os.path.join(payslips_dir, "**", "*.pdf"), recursive=True)[:3]
         if sample_files:
-            print(f"\n📋 Sample files:")
+            print("\n📋 Sample files:")
             for pdf_file in sample_files:
                 rel_path = os.path.relpath(pdf_file, test_data_dir)
                 print(f"   - {rel_path}")
@@ -127,26 +126,26 @@ def convert_payslips_to_pdf(test_data_dir: str = "./test_data"):
                             if line.startswith("Company:"):
                                 company_name = line.split(":", 1)[1].strip()
                                 break
-            except:
+            except Exception:
                 pass
 
             # Create ZIP archive
-            print(f"\n📦 Creating ZIP archive...")
-            zip_path = create_payslips_zip(payslips_dir, 2025, company_name)
+            print("\n📦 Creating ZIP archive...")
+            create_payslips_zip(payslips_dir, 2025, company_name)
 
         except ImportError:
-            print(f"\n💡 To create ZIP archive manually, run:")
+            print("\n💡 To create ZIP archive manually, run:")
             print(f"   python -c \"from generate_test_data import create_payslips_zip; create_payslips_zip('{payslips_dir}', 2025, 'Company_Name')\"")
         except Exception as e:
             print(f"\n⚠️  Could not create ZIP archive: {e}")
-            print(f"   You can create it manually using the generate_test_data.py functions")
+            print("   You can create it manually using the generate_test_data.py functions")
 
     if failed_conversions > 0:
-        print(f"\n⚠️  Some conversions failed. Try installing:")
-        print(f"   pip install weasyprint")
-        print(f"   # or")
-        print(f"   pip install pdfkit")
-        print(f"   # (pdfkit also requires wkhtmltopdf system installation)")
+        print("\n⚠️  Some conversions failed. Try installing:")
+        print("   pip install weasyprint")
+        print("   # or")
+        print("   pip install pdfkit")
+        print("   # (pdfkit also requires wkhtmltopdf system installation)")
 
 
 def create_sample_vision_test():

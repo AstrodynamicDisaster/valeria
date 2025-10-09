@@ -23,14 +23,31 @@ Base = declarative_base()
 # Core Database Models
 
 class Client(Base):
-    """Client companies using payroll services"""
+    """Client companies using payroll services - matches production 'companies' table schema"""
     __tablename__ = 'clients'
 
-    id = Column(Integer, primary_key=True)
-    fiscal_name = Column(Text, nullable=False)
-    nif = Column(Text, unique=True, nullable=False)
-    ccc_ss = Column(Text)  # Código Cuenta Cotización Seguridad Social
-    contact_emails = Column(ARRAY(Text))
+    id = Column(String, primary_key=True)  # UUID string to match production
+    name = Column(Text, nullable=False)  # Was fiscal_name
+    cif = Column(Text, unique=True, nullable=False)  # Was nif
+    fiscal_address = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    ccc_ss = Column(Text)  # Código Cuenta Cotización Seguridad Social (local only)
+    begin_date = Column(DateTime(timezone=True))
+    managed_by = Column(Text)
+    payslips = Column(Boolean, default=True)
+
+    # Legal representative fields (matching production)
+    legal_repr_first_name = Column(Text)
+    legal_repr_last_name1 = Column(Text)
+    legal_repr_last_name2 = Column(Text)
+    legal_repr_nif = Column(Text)
+    legal_repr_role = Column(Text)
+    legal_repr_phone = Column(Text)
+    legal_repr_email = Column(Text)
+
+    # Status and metadata
+    status = Column(Text, default='Active')
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -42,25 +59,35 @@ class Client(Base):
 
 
 class Employee(Base):
-    """Employees of client companies"""
+    """Employees of client companies - matches production 'company_employees' table schema"""
     __tablename__ = 'employees'
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    company_id = Column(String, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)  # Was client_id
 
-    # Identity fields
-    full_name = Column(Text, nullable=False)
-    documento = Column(Text, nullable=False)  # DNI/NIE (from vida laboral CSV)
-    nif = Column(Text)  # May be same as documento
-    nss = Column(Text)  # Número Seguridad Social
-    date_of_birth = Column(Date)
+    # Identity fields (matching production)
+    first_name = Column(Text, nullable=False)  # Split from full_name
+    last_name = Column(Text, nullable=False)   # Split from full_name
+    last_name2 = Column(Text)                  # Spanish second surname
+    identity_card_number = Column(Text, nullable=False)  # Was documento (DNI/NIE)
+    identity_doc_type = Column(Text)  # 'DNI' or 'NIE'
+    ss_number = Column(Text)  # Was nss (Número Seguridad Social)
+    birth_date = Column(Date)  # Was date_of_birth
+
+    # Contact information
+    address = Column(Text)
+    phone = Column(Text)
+    mail = Column(Text)
+
+    # Employment details
+    begin_date = Column(Date)  # Was employment_start_date
+    end_date = Column(Date)    # Was employment_end_date
+    salary = Column(Numeric(10, 2))
+    role = Column(Text)
+    employee_status = Column(Text)  # 'Active', 'Terminated', etc.
 
     # Status
     active = Column(Boolean, default=True)
-
-    # Employment period (from vida laboral CSV)
-    employment_start_date = Column(Date)  # f_real_alta
-    employment_end_date = Column(Date)    # f_real_sit if status is BAJA
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -95,7 +122,7 @@ class Document(Base):
     __tablename__ = 'documents'
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'))
+    client_id = Column(String, ForeignKey('clients.id', ondelete='CASCADE'))  # Updated to String
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'))
 
@@ -201,7 +228,7 @@ class ChecklistItem(Base):
     __tablename__ = 'checklist_items'
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    client_id = Column(String, ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)  # Updated to String
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='SET NULL'))
 
@@ -243,7 +270,7 @@ def ensure_documents_directory():
     return base_dir
 
 
-def get_client_document_path(client_id: int) -> str:
+def get_client_document_path(client_id: str) -> str:
     """Get document directory path for a client"""
     base_dir = ensure_documents_directory()
     client_dir = os.path.join(base_dir, f"client_{client_id}")
@@ -251,7 +278,7 @@ def get_client_document_path(client_id: int) -> str:
     return client_dir
 
 
-def get_employee_document_path(client_id: int, employee_id: int) -> str:
+def get_employee_document_path(client_id: str, employee_id: int) -> str:
     """Get document directory path for an employee"""
     client_dir = get_client_document_path(client_id)
     employee_dir = os.path.join(client_dir, f"employee_{employee_id}")
@@ -259,7 +286,7 @@ def get_employee_document_path(client_id: int, employee_id: int) -> str:
     return employee_dir
 
 
-def save_document_file(file_content: bytes, filename: str, client_id: int, employee_id: int = None) -> str:
+def save_document_file(file_content: bytes, filename: str, client_id: str, employee_id: int = None) -> str:
     """Save document file and return relative path"""
     if employee_id:
         doc_dir = get_employee_document_path(client_id, employee_id)
@@ -284,7 +311,7 @@ def load_document_file(file_path: str) -> bytes:
 
 # Basic Vida Laboral CSV Import
 
-def parse_vida_laboral_csv_simple(csv_content: str, client_id: int) -> dict:
+def parse_vida_laboral_csv_simple(csv_content: str, client_id: str) -> dict:
     """Simple vida laboral CSV parser - core functionality only"""
     import csv
     from io import StringIO
@@ -375,8 +402,8 @@ def create_indexes(engine):
     print("Creating database indexes...")
 
     indexes = [
-        Index('idx_employees_client_id', Employee.client_id),
-        Index('idx_employees_documento', Employee.documento),
+        Index('idx_employees_company_id', Employee.company_id),  # Updated from client_id
+        Index('idx_employees_identity_card', Employee.identity_card_number),  # Updated from documento
         Index('idx_employees_active', Employee.active),
         Index('idx_documents_client_id', Document.client_id),
         Index('idx_documents_employee_id', Document.employee_id),
@@ -438,9 +465,9 @@ def create_basic_views(engine):
         """
         CREATE OR REPLACE VIEW payroll_completeness AS
         SELECT
-            e.client_id,
+            e.company_id,
             e.id as employee_id,
-            e.full_name,
+            CONCAT(e.first_name, ' ', e.last_name, COALESCE(' ' || e.last_name2, '')) as full_name,
             years.period_year,
             COUNT(p.id) as payrolls_received,
             12 - COUNT(p.id) as payrolls_missing,
@@ -449,8 +476,8 @@ def create_basic_views(engine):
         CROSS JOIN generate_series(2023, EXTRACT(YEAR FROM NOW())::int) as years(period_year)
         LEFT JOIN payrolls p ON e.id = p.employee_id AND p.period_year = years.period_year
         WHERE e.active = true
-        GROUP BY e.client_id, e.id, e.full_name, years.period_year
-        ORDER BY e.client_id, e.full_name, years.period_year;
+        GROUP BY e.company_id, e.id, e.first_name, e.last_name, e.last_name2, years.period_year
+        ORDER BY e.company_id, full_name, years.period_year;
         """,
 
         # Model 111 quarterly data
@@ -458,8 +485,8 @@ def create_basic_views(engine):
         CREATE OR REPLACE VIEW model111_quarterly_data AS
         SELECT
             c.id as client_id,
-            c.fiscal_name,
-            c.nif,
+            c.name as fiscal_name,
+            c.cif,
             p.period_year,
             p.period_quarter,
             COUNT(DISTINCT e.id) as employee_count,
@@ -467,11 +494,11 @@ def create_basic_views(engine):
             SUM(COALESCE(p.irpf_base_monetaria, 0) + COALESCE(p.irpf_base_especie, 0)) as base_irpf_total,
             SUM(COALESCE(p.irpf_retencion_monetaria, 0) + COALESCE(p.irpf_retencion_especie, 0)) as retencion_irpf_total
         FROM clients c
-        JOIN employees e ON c.id = e.client_id
+        JOIN employees e ON c.id = e.company_id
         JOIN payrolls p ON e.id = p.employee_id
         WHERE c.active = true AND e.active = true AND p.validated_at IS NOT NULL
-        GROUP BY c.id, c.fiscal_name, c.nif, p.period_year, p.period_quarter
-        ORDER BY c.fiscal_name, p.period_year, p.period_quarter;
+        GROUP BY c.id, c.name, c.cif, p.period_year, p.period_quarter
+        ORDER BY c.name, p.period_year, p.period_quarter;
         """
     ]
 

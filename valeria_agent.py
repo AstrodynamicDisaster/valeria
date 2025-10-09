@@ -200,13 +200,17 @@ class ValeriaAgent:
                     else:
                         client_name = f"Client from {filename}"
 
-            # Create or get client
-            client = self.session.query(Client).filter_by(fiscal_name=client_name).first()
+            # Create or get client (updated for new schema)
+            client = self.session.query(Client).filter_by(name=client_name).first()  # Updated from fiscal_name
             if not client:
                 client = Client(
-                    fiscal_name=client_name,
-                    nif=f"CIF{uuid.uuid4().hex[:8].upper()}",  # Generate fake CIF
-                    ccc_ss=f"{uuid.uuid4().hex[:14].upper()}",  # Generate fake CCC
+                    id=str(uuid.uuid4()),  # UUID string to match production
+                    name=client_name,  # Updated from fiscal_name
+                    cif=f"B{uuid.uuid4().hex[:8].upper()}",  # Generate fake CIF
+                    ccc_ss=f"{uuid.uuid4().hex[:14].upper()}",  # Generate fake CCC (local only)
+                    fiscal_address="Calle Ficticia 123",
+                    email=f"contact@{client_name.lower().replace(' ', '')[:20]}.com",
+                    phone="34900000000",
                     active=True
                 )
                 self.session.add(client)
@@ -227,44 +231,64 @@ class ValeriaAgent:
                     f_real_alta = row.get('f_real_alta', '')
                     f_real_sit = row.get('f_real_sit', '')
 
-                    # Parse Spanish name format: "SURNAME1 SURNAME2 --- FIRSTNAME"
+                    # Parse Spanish name format: "SURNAME1 SURNAME2 --- FIRSTNAME" (updated for new schema)
                     if ' --- ' in nombre:
                         apellidos, nombre_propio = nombre.split(' --- ', 1)
-                        full_name = f"{nombre_propio.strip()} {apellidos.strip()}"
+                        first_name = nombre_propio.strip()
+
+                        # Split surnames
+                        surname_parts = apellidos.strip().split()
+                        last_name = surname_parts[0] if len(surname_parts) > 0 else "Unknown"
+                        last_name2 = surname_parts[1] if len(surname_parts) > 1 else None
                     else:
-                        full_name = nombre.strip()
+                        # Fallback: assume first word is first name, rest is surname
+                        name_parts = nombre.strip().split()
+                        first_name = name_parts[0] if len(name_parts) > 0 else "Unknown"
+                        last_name = name_parts[1] if len(name_parts) > 1 else "Unknown"
+                        last_name2 = name_parts[2] if len(name_parts) > 2 else None
 
                     # Parse employment dates
-                    employment_start = self._parse_date(f_real_alta) if f_real_alta else None
-                    employment_end = None
+                    begin_date = self._parse_date(f_real_alta) if f_real_alta else None  # Renamed
+                    end_date = None  # Renamed
                     if situacion == 'BAJA' and f_real_sit:
-                        employment_end = self._parse_date(f_real_sit)
+                        end_date = self._parse_date(f_real_sit)
 
-                    # Check if employee exists
+                    # Determine document type
+                    identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
+
+                    # Check if employee exists (updated field names)
                     employee = self.session.query(Employee).filter_by(
-                        client_id=client.id,
-                        documento=documento
+                        company_id=client.id,  # Updated from client_id
+                        identity_card_number=documento  # Updated from documento
                     ).first()
 
                     if not employee:
                         employee = Employee(
-                            client_id=client.id,
-                            full_name=full_name,
-                            documento=documento,
-                            nif=documento,  # Usually same as documento
-                            nss=f"SS{uuid.uuid4().hex[:10].upper()}",  # Generate fake NSS
+                            company_id=client.id,  # Updated from client_id
+                            first_name=first_name,
+                            last_name=last_name,
+                            last_name2=last_name2,
+                            identity_card_number=documento,  # Updated from documento
+                            identity_doc_type=identity_doc_type,
+                            ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",  # Updated from nss
                             active=(situacion == 'ALTA'),
-                            employment_start_date=employment_start,
-                            employment_end_date=employment_end
+                            begin_date=begin_date,  # Updated from employment_start_date
+                            end_date=end_date,  # Updated from employment_end_date
+                            salary=1500.00,  # Default salary
+                            role="Empleado",  # Default role
+                            employee_status='Active' if situacion == 'ALTA' else 'Terminated'
                         )
                         self.session.add(employee)
                         employees_created += 1
                     else:
                         # Update existing employee
-                        employee.full_name = full_name
+                        employee.first_name = first_name
+                        employee.last_name = last_name
+                        employee.last_name2 = last_name2
                         employee.active = (situacion == 'ALTA')
-                        employee.employment_start_date = employment_start
-                        employee.employment_end_date = employment_end
+                        employee.begin_date = begin_date
+                        employee.end_date = end_date
+                        employee.employee_status = 'Active' if situacion == 'ALTA' else 'Terminated'
                         employees_updated += 1
 
             self.session.commit()
@@ -288,7 +312,7 @@ class ValeriaAgent:
                 "message": f"Failed to process vida laboral CSV: {e}"
             }
 
-    def detect_missing_payslips(self, client_id: Optional[int] = None) -> Dict[str, Any]:
+    def detect_missing_payslips(self, client_id: Optional[str] = None) -> Dict[str, Any]:  # Updated type hint
         """
         Detect missing payslips by comparing vida laboral employment periods
         with processed nomina records in the database.
@@ -307,11 +331,11 @@ class ValeriaAgent:
                         "message": "Please process vida laboral CSV first or specify client_id"
                     }
 
-            # Get all employees for this client with employment periods
+            # Get all employees for this client with employment periods (updated field names)
             employees = self.session.query(Employee).filter_by(
-                client_id=client_id
+                company_id=client_id  # Updated from client_id
             ).filter(
-                Employee.employment_start_date.isnot(None)
+                Employee.begin_date.isnot(None)  # Updated from employment_start_date
             ).all()
 
             if not employees:
@@ -328,11 +352,16 @@ class ValeriaAgent:
             print(f"🔍 Analyzing missing payslips for {len(employees)} employees...")
 
             for employee in employees:
-                print(f"   📋 Checking {employee.full_name} ({employee.documento})...")
+                # Build full name from components
+                full_name = f"{employee.first_name} {employee.last_name}"
+                if employee.last_name2:
+                    full_name += f" {employee.last_name2}"
 
-                # Determine employment period
-                start_date = employee.employment_start_date
-                end_date = employee.employment_end_date or current_date
+                print(f"   📋 Checking {full_name} ({employee.identity_card_number})...")  # Updated
+
+                # Determine employment period (updated field names)
+                start_date = employee.begin_date  # Updated from employment_start_date
+                end_date = employee.end_date or current_date  # Updated from employment_end_date
 
                 # Generate expected months
                 expected_months = self._generate_expected_months(start_date, end_date)
@@ -353,10 +382,10 @@ class ValeriaAgent:
                 if missing_months:
                     employee_missing = {
                         "employee_id": employee.id,
-                        "employee_name": employee.full_name,
-                        "documento": employee.documento,
+                        "employee_name": full_name,  # Use constructed full_name
+                        "identity_card_number": employee.identity_card_number,  # Updated from documento
                         "employment_start": start_date.strftime('%Y-%m-%d') if start_date else None,
-                        "employment_end": end_date.strftime('%Y-%m-%d') if employee.employment_end_date else "Active",
+                        "employment_end": end_date.strftime('%Y-%m-%d') if employee.end_date else "Active",  # Updated
                         "expected_months": len(expected_months),
                         "processed_months": len(processed_months),
                         "missing_months": missing_months,
@@ -682,8 +711,13 @@ class ValeriaAgent:
 
                                     processed_count += 1
 
+                                    # Build full name
+                                    emp_full_name = f"{employee.first_name} {employee.last_name}"
+                                    if employee.last_name2:
+                                        emp_full_name += f" {employee.last_name2}"
+
                                     results.append({
-                                        "employee": employee.full_name,
+                                        "employee": emp_full_name,  # Updated to use constructed name
                                         "file": pdf_file,
                                         "period": f"{period_year}-{period_month:02d}",
                                         "gross": emp_info.get('bruto_total'),
@@ -954,9 +988,15 @@ class ValeriaAgent:
 
         # Try to match by name (fuzzy matching could be added here)
         if name:
+            # Search across first_name and last_name fields
+            from sqlalchemy import or_, func
             employee = self.session.query(Employee).filter(
-                Employee.client_id == client_id,
-                Employee.full_name.ilike(f"%{name}%")
+                Employee.company_id == client_id,  # Updated from client_id
+                or_(
+                    Employee.first_name.ilike(f"%{name}%"),
+                    Employee.last_name.ilike(f"%{name}%"),
+                    func.concat(Employee.first_name, ' ', Employee.last_name).ilike(f"%{name}%")
+                )
             ).first()
             if employee:
                 return employee

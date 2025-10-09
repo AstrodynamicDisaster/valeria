@@ -187,19 +187,38 @@ class VidaLaboralGenerator:
         self.data_gen = data_generator
 
     def generate_employee_data(self, num_employees: int = 5) -> List[Dict]:
-        """Generate basic employee data"""
+        """Generate basic employee data matching production schema"""
         employees = []
 
         for _ in range(num_employees):
             vida_name, normal_name = self.data_gen.generate_spanish_name()
-            documento = self.data_gen.generate_documento()
+            identity_card_number = self.data_gen.generate_documento()
+
+            # Parse name into components (vida_name format: "SURNAME1 SURNAME2 --- FIRST_NAME")
+            name_parts = vida_name.split(' --- ')
+            surnames = name_parts[0].strip()
+            first_name = name_parts[1].strip() if len(name_parts) > 1 else "UNKNOWN"
+
+            # Split surnames
+            surname_parts = surnames.split()
+            last_name = surname_parts[0] if len(surname_parts) > 0 else "UNKNOWN"
+            last_name2 = surname_parts[1] if len(surname_parts) > 1 else None
 
             employee = {
-                'documento': documento,
-                'nombre': vida_name,
+                'identity_card_number': identity_card_number,  # Was 'documento'
+                'identity_doc_type': 'NIE' if identity_card_number.startswith(('X', 'Y', 'Z')) else 'DNI',
+                'nombre_vida': vida_name,  # Vida laboral format for CSV
+                'first_name': first_name,
+                'last_name': last_name,
+                'last_name2': last_name2,
                 'normal_name': normal_name,
-                'nss': self.data_gen.generate_nss(),
-                'birth_date': self.generate_birth_date()
+                'ss_number': self.data_gen.generate_nss(),  # Was 'nss'
+                'birth_date': self.generate_birth_date(),
+                'phone': f"34{random.randint(600000000, 699999999)}",
+                'mail': f"{first_name.lower()}.{last_name.lower()}@example.com",
+                'address': f"Calle {random.choice(['Mayor', 'Real', 'Principal'])} {random.randint(1, 100)}",
+                'salary': round(random.uniform(1200, 3000), 2),
+                'role': random.choice(['Empleado', 'Especialista', 'Técnico', 'Administrativo'])
             }
             employees.append(employee)
 
@@ -250,8 +269,8 @@ class VidaLaboralGenerator:
                 # ALTA within last 3 months, still active
                 alta_date = random_date_in_window(three_months_ago, today)
                 events.append({
-                    'documento': employee['documento'],
-                    'nombre': employee['nombre'],
+                    'identity_card_number': employee['identity_card_number'],  # Updated field name
+                    'nombre': employee['nombre_vida'],  # Use vida laboral format
                     'situacion': 'ALTA',
                     'f_real_alta': alta_date.strftime('%d-%m-%Y'),
                     'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
@@ -268,16 +287,16 @@ class VidaLaboralGenerator:
 
                 events.extend([
                     {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
+                        'identity_card_number': employee['identity_card_number'],
+                        'nombre': employee['nombre_vida'],
                         'situacion': 'ALTA',
                         'f_real_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_real_sit': alta_date.strftime('%d-%m-%Y')
                     },
                     {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
+                        'identity_card_number': employee['identity_card_number'],
+                        'nombre': employee['nombre_vida'],
                         'situacion': 'BAJA',
                         'f_real_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
@@ -292,16 +311,16 @@ class VidaLaboralGenerator:
 
                 events.extend([
                     {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
+                        'identity_card_number': employee['identity_card_number'],
+                        'nombre': employee['nombre_vida'],
                         'situacion': 'ALTA',
                         'f_real_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_real_sit': alta_date.strftime('%d-%m-%Y')
                     },
                     {
-                        'documento': employee['documento'],
-                        'nombre': employee['nombre'],
+                        'identity_card_number': employee['identity_card_number'],
+                        'nombre': employee['nombre_vida'],
                         'situacion': 'BAJA',
                         'f_real_alta': alta_date.strftime('%d-%m-%Y'),
                         'f_efecto_alta': alta_date.strftime('%d-%m-%Y'),
@@ -320,15 +339,15 @@ class VidaLaboralGenerator:
         employees = self.generate_employee_data(num_employees)
         events = self.generate_employment_events(employees, year)
 
-        # Sort events by documento and date
-        events.sort(key=lambda x: (x['documento'], x['f_real_sit']))
+        # Sort events by identity_card_number and date
+        events.sort(key=lambda x: (x['identity_card_number'], x['f_real_sit']))
 
         # Generate CSV content
         output = []
         output.append('documento,nombre,situacion,f_real_alta,f_efecto_alta,f_real_sit')
 
         for event in events:
-            line = f"{event['documento']},{event['nombre']},{event['situacion']},{event['f_real_alta']},{event['f_efecto_alta']},{event['f_real_sit']}"
+            line = f"{event['identity_card_number']},{event['nombre']},{event['situacion']},{event['f_real_alta']},{event['f_efecto_alta']},{event['f_real_sit']}"
             output.append(line)
 
         return '\n'.join(output), events
@@ -994,27 +1013,36 @@ def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 
 
     print(f"✓ Vida laboral saved: {vida_csv_path}")
 
-    # Parse the CSV to get employee data
+    # Parse the CSV to get employee data (updated for new schema)
     employees_data = {}
     lines = vida_csv_content.strip().split('\n')[1:]  # Skip header
 
     for line in lines:
         parts = line.split(',')
-        documento = parts[0]
+        identity_card_number = parts[0]  # Updated field name
         nombre_vida = parts[1]
 
-        if documento not in employees_data:
+        if identity_card_number not in employees_data:
             # Convert vida laboral name format to normal format
             name_parts = nombre_vida.split(' --- ')
             surnames = name_parts[0].strip()
             first_name = name_parts[1].strip() if len(name_parts) > 1 else "UNKNOWN"
+
+            # Split surnames
+            surname_parts = surnames.split()
+            last_name = surname_parts[0] if len(surname_parts) > 0 else "UNKNOWN"
+            last_name2 = surname_parts[1] if len(surname_parts) > 1 else None
+
             normal_name = f"{first_name} {surnames}"
 
-            employees_data[documento] = {
-                'documento': documento,
+            employees_data[identity_card_number] = {
+                'identity_card_number': identity_card_number,  # Updated
+                'first_name': first_name,
+                'last_name': last_name,
+                'last_name2': last_name2,
                 'normal_name': normal_name,
                 'vida_name': nombre_vida,
-                'nss': data_gen.generate_nss()
+                'ss_number': data_gen.generate_nss()  # Updated from 'nss'
             }
 
     print(f"\n💼 Generating payslips for {len(employees_data)} employees...")
@@ -1031,7 +1059,7 @@ def generate_test_dataset(output_dir: str = "./test_data", num_employees: int = 
         employed_months = set()
 
         # Find employment periods for this employee from vida laboral events
-        employee_events = [e for e in employment_events if e['documento'] == employee_doc]
+        employee_events = [e for e in employment_events if e['identity_card_number'] == employee_doc]  # Updated field
 
         for event in employee_events:
             if event['situacion'] == 'ALTA':

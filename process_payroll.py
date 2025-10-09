@@ -230,9 +230,9 @@ def _robust_json_parse(content: str) -> list:
         pass
 
     # If all else fails, return empty list with helpful error message
-    print(f"⚠️  JSON parsing failed after all repair attempts")
+    print("⚠️  JSON parsing failed after all repair attempts")
     print(f"📝 First 200 chars: {content[:200]}...")
-    print(f"💡 Consider improving the OpenAI prompt or adding more repair patterns")
+    print("💡 Consider improving the OpenAI prompt or adding more repair patterns")
     return []
 
 def _call_openai_vision(client, base64_image):
