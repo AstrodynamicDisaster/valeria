@@ -24,14 +24,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 
 # Reuse existing modules
-from setup_database import (
-    create_database_engine, Client, Employee, Payroll, PayrollLine,
-    NominaConcept, Document, Base
+from core.models import (
+    Base, Client, Employee, Payroll, PayrollLine,
+    NominaConcept, Document
 )
-from process_payroll import extract_payroll_info
-from production_models import (
+from core.database import create_database_engine
+from core.production_models import (
     create_production_engine, ProductionCompany, ProductionEmployee
 )
+from process_payroll import extract_payroll_info
 
 
 class ValeriaAgent:

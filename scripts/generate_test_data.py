@@ -10,9 +10,13 @@ Generates:
 """
 
 import os
+import sys
 import csv
 import random
 import re
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import zipfile
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple

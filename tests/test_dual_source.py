@@ -7,15 +7,20 @@ Tests switching between local and production data sources.
 import os
 import sys
 
+# Add parent directory to path to import modules FIRST
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Set environment variables BEFORE importing
+os.environ['USE_PRODUCTION_DATA'] = 'false'
+os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'dummy-key-for-testing')
+
+# Now import after path is set
+from valeria_agent import ValeriaAgent
+
 # Test with local data
 print("=" * 60)
 print("TEST 1: Local Data Mode (USE_PRODUCTION_DATA=false)")
 print("=" * 60)
-
-os.environ['USE_PRODUCTION_DATA'] = 'false'
-os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'dummy-key-for-testing')
-
-from valeria_agent import ValeriaAgent
 
 agent_local = ValeriaAgent(os.environ['OPENAI_API_KEY'])
 

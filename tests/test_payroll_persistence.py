@@ -4,9 +4,15 @@ Test script to verify that multiple payroll records are properly persisted
 """
 
 import os
+import sys
 from datetime import date
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from valeria_agent import ValeriaAgent
-from setup_database import Employee, Payroll, create_database_engine
+from core.models import Employee, Payroll
+from core.database import create_database_engine
 
 def test_payroll_persistence():
     """Test that multiple payroll records are properly saved"""

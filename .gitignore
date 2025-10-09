@@ -1,0 +1,8 @@
+.env
+/legacy
+/test_data
+/temp*
+/__pycache__
+.DS_Store
+/reports/*
+/core/__pycache__

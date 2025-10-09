@@ -113,7 +113,7 @@ def convert_payslips_to_pdf(test_data_dir: str = "./test_data"):
 
         # Create ZIP archive if we have PDFs
         try:
-            from generate_test_data import create_payslips_zip
+            from scripts.generate_test_data import create_payslips_zip
 
             # Try to determine company name from directory structure or use default
             company_name = "Test_Company"
