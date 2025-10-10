@@ -17,22 +17,25 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import difflib
 import time
+from collections import deque
+from decimal import Decimal
 
 from openai import OpenAI
 from tqdm import tqdm
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.inspection import inspect as sa_inspect
 
 # Reuse existing modules
-from .models import (
+from core.models import (
     Base, Client, Employee, Payroll, PayrollLine,
     NominaConcept, Document
 )
-from .database import create_database_engine
-from .production_models import (
+from core.database import create_database_engine
+from core.production_models import (
     create_production_engine, ProductionCompany, ProductionEmployee
 )
-from .process_payroll import extract_payroll_info
+from core.process_payroll import extract_payroll_info
 
 
 class ValeriaAgent:
@@ -67,6 +70,13 @@ class ValeriaAgent:
             'nominas_processed': 0
         }
 
+        # Conversational memory (summary + recent turns)
+        self.memory_summary: str = ""
+        self.conversation_history: deque = deque()
+        self._max_history_turns: int = 50  # keep the last 50 turns (user + assistant messages tracked separately)
+        self._max_history_messages: int = self._max_history_turns * 2
+        self._summary_char_limit: int = 4000
+
         # Cache for concept mappings
         self._concept_mappings = None
 
@@ -76,7 +86,7 @@ class ValeriaAgent:
                 "type": "function",
                 "function": {
                     "name": "process_vida_laboral_csv",
-                    "description": "Process a vida laboral CSV file and insert employee records into database. Automatically extracts company name from test_data_summary.txt if available.",
+                    "description": "Process a vida laboral CSV file and insert employee records into database. IMPORTANT: You must ask the user which company to assign employees to before calling this function. Use list_clients to show available companies.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -86,10 +96,10 @@ class ValeriaAgent:
                             },
                             "client_name": {
                                 "type": "string",
-                                "description": "Name of the client company (optional, will try to infer from filename)"
+                                "description": "Name or CIF of the client company (REQUIRED - must ask user first)"
                             }
                         },
-                        "required": ["file_path"]
+                        "required": ["file_path", "client_name"]
                     }
                 }
             },
@@ -184,6 +194,305 @@ class ValeriaAgent:
                                 "description": "Custom filename (auto-generated if not provided)"
                             }
                         },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_client",
+                    "description": "Create a new client/company record in the database",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "Company name"
+                            },
+                            "cif": {
+                                "type": "string",
+                                "description": "Tax identification number (CIF/NIF)"
+                            },
+                            "fiscal_address": {
+                                "type": "string",
+                                "description": "Company fiscal address (optional)"
+                            },
+                            "email": {
+                                "type": "string",
+                                "description": "Company email (optional)"
+                            },
+                            "phone": {
+                                "type": "string",
+                                "description": "Company phone (optional)"
+                            }
+                        },
+                        "required": ["name", "cif"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_employee",
+                    "description": "Create a new employee record for a company",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "company_id": {
+                                "type": "string",
+                                "description": "Company UUID"
+                            },
+                            "first_name": {
+                                "type": "string",
+                                "description": "Employee first name"
+                            },
+                            "last_name": {
+                                "type": "string",
+                                "description": "Employee last name (paternal surname)"
+                            },
+                            "last_name2": {
+                                "type": "string",
+                                "description": "Employee second last name (maternal surname, optional)"
+                            },
+                            "identity_card_number": {
+                                "type": "string",
+                                "description": "DNI or NIE number"
+                            },
+                            "salary": {
+                                "type": "number",
+                                "description": "Monthly salary (optional)"
+                            },
+                            "role": {
+                                "type": "string",
+                                "description": "Job role (optional)"
+                            }
+                        },
+                        "required": ["company_id", "first_name", "last_name", "identity_card_number"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_payroll",
+                    "description": "Create a new payroll record for an employee",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "employee_id": {
+                                "type": "integer",
+                                "description": "Employee ID"
+                            },
+                            "period_year": {
+                                "type": "integer",
+                                "description": "Payroll year"
+                            },
+                            "period_month": {
+                                "type": "integer",
+                                "description": "Payroll month (1-12)"
+                            },
+                            "bruto_total": {
+                                "type": "number",
+                                "description": "Gross total amount"
+                            },
+                            "neto_total": {
+                                "type": "number",
+                                "description": "Net total amount"
+                            }
+                        },
+                        "required": ["employee_id", "period_year", "period_month"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "update_employee",
+                    "description": "Update existing employee details",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "employee_id": {
+                                "type": "integer",
+                                "description": "Employee ID to update"
+                            },
+                            "salary": {
+                                "type": "number",
+                                "description": "New salary amount (optional)"
+                            },
+                            "role": {
+                                "type": "string",
+                                "description": "New job role (optional)"
+                            },
+                            "employee_status": {
+                                "type": "string",
+                                "description": "Employment status: 'Active', 'Terminated', etc. (optional)"
+                            }
+                        },
+                        "required": ["employee_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_employee",
+                    "description": "Permanently delete an employee and all associated payrolls. This is a hard delete with cascade.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "employee_id": {
+                                "type": "integer",
+                                "description": "Employee ID to delete"
+                            }
+                        },
+                        "required": ["employee_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_client",
+                    "description": "Permanently delete a client/company and all associated employees and payrolls. This is a hard delete with cascade.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "client_id": {
+                                "type": "string",
+                                "description": "Client UUID to delete"
+                            }
+                        },
+                        "required": ["client_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_clients",
+                    "description": "List all companies/clients in the database",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "active_only": {
+                                "type": "boolean",
+                                "description": "If true, only show active clients (default: true)"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results (default: 100)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_employees",
+                    "description": "List employees with optional filters",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "company_id": {
+                                "type": "string",
+                                "description": "Filter by company UUID (optional)"
+                            },
+                            "employee_status": {
+                                "type": "string",
+                                "description": "Filter by employment status: 'Active', 'Terminated', etc. (optional, shows all if not specified)"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results (default: 100)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_payrolls",
+                    "description": "List payrolls with optional filters",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "employee_id": {
+                                "type": "integer",
+                                "description": "Filter by employee ID (optional)"
+                            },
+                            "year": {
+                                "type": "integer",
+                                "description": "Filter by year (optional)"
+                            },
+                            "month": {
+                                "type": "integer",
+                                "description": "Filter by month 1-12 (optional)"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results (default: 100)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_payroll",
+                    "description": "Permanently delete a payroll record and all associated line items. This is a hard delete with cascade.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "payroll_id": {
+                                "type": "integer",
+                                "description": "Payroll ID to delete"
+                            }
+                        },
+                        "required": ["payroll_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_employees",
+                    "description": "Search for employees by name or ID number (fuzzy search)",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search term (name or ID number)"
+                            },
+                            "company_id": {
+                                "type": "string",
+                                "description": "Filter by company UUID (optional)"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results (default: 20)"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_database_stats",
+                    "description": "Get overall database statistics (clients, employees, payrolls counts)",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
                         "required": []
                     }
                 }
@@ -344,51 +653,36 @@ class ValeriaAgent:
     # ========================================
 
     def process_vida_laboral_csv(self, file_path: str, client_name: Optional[str] = None) -> Dict[str, Any]:
-        """Process vida laboral CSV file - reuses existing database models"""
+        """
+        Process vida laboral CSV file - imports employee data into database.
+
+        Args:
+            file_path: Path to the vida laboral CSV file
+            client_name: Name or CIF of the company to assign employees to (REQUIRED)
+
+        Returns:
+            Dict with success status, employee counts, and message
+        """
         try:
-            # Infer client name from filename if not provided
+            # Client name is required - agent should ask user before calling this
             if not client_name:
-                filename = Path(file_path).stem
+                return {
+                    "success": False,
+                    "error": "client_name is required",
+                    "message": "Please specify which company to assign these employees to. Use list_clients to see available companies, or create_client to create a new one."
+                }
 
-                # Try to find company name from test data summary file
-                file_dir = Path(file_path).parent
-                summary_file = file_dir / "test_data_summary.txt"
+            # Find client by name or CIF
+            client = self.session.query(Client).filter(
+                (Client.name == client_name) | (Client.cif == client_name)
+            ).first()
 
-                if summary_file.exists():
-                    try:
-                        with open(summary_file, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                if line.startswith("Company:"):
-                                    client_name = line.split(":", 1)[1].strip()
-                                    break
-                    except Exception:
-                        pass
-
-                # Fallback: extract CCC code and use descriptive name
-                if not client_name:
-                    import re
-                    ccc_match = re.search(r'(\d{14})', filename)
-                    if ccc_match:
-                        ccc_code = ccc_match.group(1)
-                        client_name = f"Company CCC-{ccc_code}"
-                    else:
-                        client_name = f"Client from {filename}"
-
-            # Create or get client (updated for new schema)
-            client = self.session.query(Client).filter_by(name=client_name).first()  # Updated from fiscal_name
             if not client:
-                client = Client(
-                    id=str(uuid.uuid4()),  # UUID string to match production
-                    name=client_name,  # Updated from fiscal_name
-                    cif=f"B{uuid.uuid4().hex[:8].upper()}",  # Generate fake CIF
-                    ccc_ss=f"{uuid.uuid4().hex[:14].upper()}",  # Generate fake CCC (local only)
-                    fiscal_address="Calle Ficticia 123",
-                    email=f"contact@{client_name.lower().replace(' ', '')[:20]}.com",
-                    phone="34900000000",
-                    active=True
-                )
-                self.session.add(client)
-                self.session.commit()
+                return {
+                    "success": False,
+                    "error": f"Client '{client_name}' not found",
+                    "message": f"Company '{client_name}' does not exist. Use create_client to create it first, or use list_clients to see available companies."
+                }
 
             self.processing_state['client_id'] = client.id
 
@@ -438,19 +732,18 @@ class ValeriaAgent:
 
                     if not employee:
                         employee = Employee(
-                            company_id=client.id,  # Updated from client_id
+                            company_id=client.id,
                             first_name=first_name,
                             last_name=last_name,
                             last_name2=last_name2,
-                            identity_card_number=documento,  # Updated from documento
+                            identity_card_number=documento,
                             identity_doc_type=identity_doc_type,
-                            ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",  # Updated from nss
-                            active=(situacion == 'ALTA'),
-                            begin_date=begin_date,  # Updated from employment_start_date
-                            end_date=end_date,  # Updated from employment_end_date
+                            ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",
+                            begin_date=begin_date,
+                            end_date=end_date,
                             salary=1500.00,  # Default salary
                             role="Empleado",  # Default role
-                            employee_status='Active' if situacion == 'ALTA' else 'Terminated'
+                            employee_status='Terminated' if end_date else 'Active'
                         )
                         self.session.add(employee)
                         employees_created += 1
@@ -459,10 +752,9 @@ class ValeriaAgent:
                         employee.first_name = first_name
                         employee.last_name = last_name
                         employee.last_name2 = last_name2
-                        employee.active = (situacion == 'ALTA')
                         employee.begin_date = begin_date
                         employee.end_date = end_date
-                        employee.employee_status = 'Active' if situacion == 'ALTA' else 'Terminated'
+                        employee.employee_status = 'Terminated' if end_date else 'Active'
                         employees_updated += 1
 
             self.session.commit()
@@ -1261,6 +1553,974 @@ class ValeriaAgent:
                 "message": f"Failed to generate report: {e}"
             }
 
+    # ========================================
+    # CRUD Operations - Clients
+    # ========================================
+
+    def create_client(self, name: str, cif: str, **kwargs) -> Dict[str, Any]:
+        """
+        Create a new client/company record
+
+        Args:
+            name: Company name
+            cif: Tax identification number (CIF/NIF)
+            **kwargs: Additional fields (fiscal_address, email, phone, etc.)
+
+        Returns:
+            {"success": bool, "data": Client, "message": str}
+        """
+        try:
+            # Check if client with same CIF already exists
+            existing = self.session.query(Client).filter_by(cif=cif).first()
+            if existing:
+                return {
+                    "success": False,
+                    "error": "Client with this CIF already exists",
+                    "message": f"Client with CIF {cif} already exists (ID: {existing.id})"
+                }
+
+            # Create client
+            client = Client(
+                id=str(uuid.uuid4()),
+                name=name,
+                cif=cif,
+                fiscal_address=kwargs.get('fiscal_address', ''),
+                email=kwargs.get('email', ''),
+                phone=kwargs.get('phone', ''),
+                ccc_ss=kwargs.get('ccc_ss', ''),
+                begin_date=kwargs.get('begin_date'),
+                managed_by=kwargs.get('managed_by', ''),
+                status=kwargs.get('status', 'Active'),
+                active=kwargs.get('active', True),
+                legal_repr_first_name=kwargs.get('legal_repr_first_name', ''),
+                legal_repr_last_name1=kwargs.get('legal_repr_last_name1', ''),
+                legal_repr_last_name2=kwargs.get('legal_repr_last_name2', ''),
+                legal_repr_nif=kwargs.get('legal_repr_nif', ''),
+                legal_repr_role=kwargs.get('legal_repr_role', ''),
+                legal_repr_phone=kwargs.get('legal_repr_phone', ''),
+                legal_repr_email=kwargs.get('legal_repr_email', '')
+            )
+
+            self.session.add(client)
+            self.session.commit()
+
+            return {
+                "success": True,
+                "data": client,
+                "message": f"Successfully created client '{name}' (CIF: {cif}, ID: {client.id})"
+            }
+
+        except IntegrityError as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": f"Database integrity error: {e}",
+                "message": f"Failed to create client: {e}"
+            }
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to create client: {e}"
+            }
+
+    def update_client(self, client_id: str, **fields) -> Dict[str, Any]:
+        """
+        Update existing client details
+
+        Args:
+            client_id: Client UUID
+            **fields: Fields to update
+
+        Returns:
+            {"success": bool, "data": Client, "message": str, "changes": dict}
+        """
+        try:
+            client = self.session.query(Client).filter_by(id=client_id).first()
+            if not client:
+                return {
+                    "success": False,
+                    "error": "Client not found",
+                    "message": f"Client with ID {client_id} not found"
+                }
+
+            # Track changes
+            changes = {}
+            updatable_fields = [
+                'name', 'cif', 'fiscal_address', 'email', 'phone', 'ccc_ss',
+                'begin_date', 'managed_by', 'status', 'active',
+                'legal_repr_first_name', 'legal_repr_last_name1', 'legal_repr_last_name2',
+                'legal_repr_nif', 'legal_repr_role', 'legal_repr_phone', 'legal_repr_email'
+            ]
+
+            for field, new_value in fields.items():
+                if field in updatable_fields and hasattr(client, field):
+                    old_value = getattr(client, field)
+                    if old_value != new_value:
+                        changes[field] = {"old": old_value, "new": new_value}
+                        setattr(client, field, new_value)
+
+            if not changes:
+                return {
+                    "success": True,
+                    "data": client,
+                    "message": "No changes made (all values same as current)",
+                    "changes": {}
+                }
+
+            self.session.commit()
+
+            return {
+                "success": True,
+                "data": client,
+                "message": f"Successfully updated client '{client.name}' ({len(changes)} field(s) changed)",
+                "changes": changes
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to update client: {e}"
+            }
+
+    def delete_client(self, client_id: str) -> Dict[str, Any]:
+        """
+        Delete a client and all associated employees and payrolls
+
+        This is a hard delete that permanently removes the client and cascades
+        to all related records (employees, payrolls, documents, etc.)
+
+        Args:
+            client_id: Client UUID
+
+        Returns:
+            {"success": bool, "message": str, "deleted_counts": dict}
+        """
+        try:
+            client = self.session.query(Client).filter_by(id=client_id).first()
+            if not client:
+                return {
+                    "success": False,
+                    "error": "Client not found",
+                    "message": f"Client with ID {client_id} not found"
+                }
+
+            client_name = client.name
+            deleted_counts = {"clients": 0, "employees": 0, "payrolls": 0}
+
+            # Delete all employees and their payrolls (cascade)
+            employees = self.session.query(Employee).filter_by(company_id=client_id).all()
+            for emp in employees:
+                # Delete payrolls for this employee
+                payrolls = self.session.query(Payroll).filter_by(employee_id=emp.id).all()
+                for payroll in payrolls:
+                    self.session.delete(payroll)
+                    deleted_counts["payrolls"] += 1
+
+                self.session.delete(emp)
+                deleted_counts["employees"] += 1
+
+            # Delete the client (will cascade to documents, checklist items, etc.)
+            self.session.delete(client)
+            deleted_counts["clients"] = 1
+            self.session.commit()
+
+            return {
+                "success": True,
+                "message": f"Successfully deleted client '{client_name}', {deleted_counts['employees']} employee(s), and {deleted_counts['payrolls']} payroll(s)",
+                "deleted_counts": deleted_counts
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to delete client: {e}"
+            }
+
+    def list_clients(self, active_only: bool = True, limit: int = 100) -> Dict[str, Any]:
+        """
+        List all clients with optional filters
+
+        Args:
+            active_only: If True, only return active clients
+            limit: Maximum number of results
+
+        Returns:
+            {"success": bool, "data": List[Client], "count": int, "message": str}
+        """
+        try:
+            query = self.session.query(Client)
+
+            if active_only:
+                query = query.filter_by(active=True)
+
+            clients = query.limit(limit).all()
+
+            return {
+                "success": True,
+                "data": clients,
+                "count": len(clients),
+                "message": f"Found {len(clients)} client(s)"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "data": [],
+                "count": 0,
+                "message": f"Failed to list clients: {e}"
+            }
+
+    # ========================================
+    # CRUD Operations - Employees
+    # ========================================
+
+    def create_employee(self, company_id: str, first_name: str, last_name: str,
+                       identity_card_number: str, **kwargs) -> Dict[str, Any]:
+        """
+        Create a new employee record
+
+        Args:
+            company_id: Client UUID
+            first_name: Employee first name
+            last_name: Employee last name (paternal surname)
+            identity_card_number: DNI/NIE number
+            **kwargs: Additional fields (last_name2, ss_number, salary, etc.)
+
+        Returns:
+            {"success": bool, "data": Employee, "message": str}
+        """
+        try:
+            # Check if company exists
+            client = self.session.query(Client).filter_by(id=company_id).first()
+            if not client:
+                return {
+                    "success": False,
+                    "error": "Company not found",
+                    "message": f"Company with ID {company_id} not found"
+                }
+
+            # Check if employee already exists for this company
+            existing = self.session.query(Employee).filter_by(
+                company_id=company_id,
+                identity_card_number=identity_card_number
+            ).first()
+
+            if existing:
+                return {
+                    "success": False,
+                    "error": "Employee already exists",
+                    "message": f"Employee with ID {identity_card_number} already exists for this company"
+                }
+
+            # Create employee
+            employee = Employee(
+                company_id=company_id,
+                first_name=first_name,
+                last_name=last_name,
+                last_name2=kwargs.get('last_name2'),
+                identity_card_number=identity_card_number,
+                identity_doc_type=kwargs.get('identity_doc_type', 'DNI'),
+                ss_number=kwargs.get('ss_number', ''),
+                birth_date=kwargs.get('birth_date'),
+                address=kwargs.get('address', ''),
+                phone=kwargs.get('phone', ''),
+                mail=kwargs.get('mail', ''),
+                begin_date=kwargs.get('begin_date'),
+                end_date=kwargs.get('end_date'),
+                salary=kwargs.get('salary', 0.0),
+                role=kwargs.get('role', 'Empleado'),
+                employee_status=kwargs.get('employee_status', 'Active'),
+                active=kwargs.get('active', True)
+            )
+
+            self.session.add(employee)
+            self.session.commit()
+
+            full_name = f"{first_name} {last_name}"
+            if kwargs.get('last_name2'):
+                full_name += f" {kwargs.get('last_name2')}"
+
+            return {
+                "success": True,
+                "data": employee,
+                "message": f"Successfully created employee '{full_name}' (ID: {identity_card_number}, Employee ID: {employee.id})"
+            }
+
+        except IntegrityError as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": f"Database integrity error: {e}",
+                "message": f"Failed to create employee: {e}"
+            }
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to create employee: {e}"
+            }
+
+    def update_employee(self, employee_id: int, **fields) -> Dict[str, Any]:
+        """
+        Update existing employee details
+
+        Args:
+            employee_id: Employee ID
+            **fields: Fields to update
+
+        Returns:
+            {"success": bool, "data": Employee, "message": str, "changes": dict}
+        """
+        try:
+            employee = self.session.query(Employee).filter_by(id=employee_id).first()
+            if not employee:
+                return {
+                    "success": False,
+                    "error": "Employee not found",
+                    "message": f"Employee with ID {employee_id} not found"
+                }
+
+            # Track changes
+            changes = {}
+            updatable_fields = [
+                'first_name', 'last_name', 'last_name2', 'identity_card_number',
+                'identity_doc_type', 'ss_number', 'birth_date', 'address', 'phone',
+                'mail', 'begin_date', 'end_date', 'salary', 'role', 'employee_status', 'active'
+            ]
+
+            for field, new_value in fields.items():
+                if field in updatable_fields and hasattr(employee, field):
+                    old_value = getattr(employee, field)
+                    if old_value != new_value:
+                        changes[field] = {"old": old_value, "new": new_value}
+                        setattr(employee, field, new_value)
+
+            if not changes:
+                return {
+                    "success": True,
+                    "data": employee,
+                    "message": "No changes made (all values same as current)",
+                    "changes": {}
+                }
+
+            self.session.commit()
+
+            full_name = f"{employee.first_name} {employee.last_name}"
+            if employee.last_name2:
+                full_name += f" {employee.last_name2}"
+
+            return {
+                "success": True,
+                "data": employee,
+                "message": f"Successfully updated employee '{full_name}' ({len(changes)} field(s) changed)",
+                "changes": changes
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to update employee: {e}"
+            }
+
+    def delete_employee(self, employee_id: int) -> Dict[str, Any]:
+        """
+        Delete an employee and all associated payrolls
+
+        This is a hard delete that permanently removes the employee and cascades
+        to all related records (payrolls, documents, etc.)
+
+        Args:
+            employee_id: Employee ID
+
+        Returns:
+            {"success": bool, "message": str, "deleted_counts": dict}
+        """
+        try:
+            employee = self.session.query(Employee).filter_by(id=employee_id).first()
+            if not employee:
+                return {
+                    "success": False,
+                    "error": "Employee not found",
+                    "message": f"Employee with ID {employee_id} not found"
+                }
+
+            full_name = f"{employee.first_name} {employee.last_name}"
+            if employee.last_name2:
+                full_name += f" {employee.last_name2}"
+
+            deleted_counts = {"employees": 0, "payrolls": 0}
+
+            # Delete associated payrolls (cascade)
+            payrolls = self.session.query(Payroll).filter_by(employee_id=employee_id).all()
+            for payroll in payrolls:
+                self.session.delete(payroll)
+                deleted_counts["payrolls"] += 1
+
+            # Delete the employee (will cascade to documents, checklist items, etc.)
+            self.session.delete(employee)
+            deleted_counts["employees"] = 1
+            self.session.commit()
+
+            return {
+                "success": True,
+                "message": f"Successfully deleted employee '{full_name}' and {deleted_counts['payrolls']} payroll(s)",
+                "deleted_counts": deleted_counts
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to delete employee: {e}"
+            }
+
+    def list_employees(self, company_id: Optional[str] = None, employee_status: Optional[str] = None,
+                      limit: int = 100) -> Dict[str, Any]:
+        """
+        List employees with optional filters
+
+        Args:
+            company_id: Filter by company (None = all companies)
+            employee_status: Filter by status (None = all, 'Active', 'Terminated', etc.)
+            limit: Maximum number of results
+
+        Returns:
+            {"success": bool, "data": List[Employee], "count": int, "message": str}
+        """
+        try:
+            query = self.session.query(Employee)
+
+            if company_id:
+                query = query.filter_by(company_id=company_id)
+
+            if employee_status:
+                query = query.filter_by(employee_status=employee_status)
+
+            employees = query.limit(limit).all()
+
+            return {
+                "success": True,
+                "data": employees,
+                "count": len(employees),
+                "message": f"Found {len(employees)} employee(s)"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "data": [],
+                "count": 0,
+                "message": f"Failed to list employees: {e}"
+            }
+
+    # ========================================
+    # CRUD Operations - Payrolls
+    # ========================================
+
+    def create_payroll(self, employee_id: int, period_year: int, period_month: int,
+                      **kwargs) -> Dict[str, Any]:
+        """
+        Create a new payroll record
+
+        Args:
+            employee_id: Employee ID
+            period_year: Payroll year
+            period_month: Payroll month (1-12)
+            **kwargs: Additional fields (bruto_total, neto_total, etc.)
+
+        Returns:
+            {"success": bool, "data": Payroll, "message": str}
+        """
+        try:
+            # Check if employee exists
+            employee = self.session.query(Employee).filter_by(id=employee_id).first()
+            if not employee:
+                return {
+                    "success": False,
+                    "error": "Employee not found",
+                    "message": f"Employee with ID {employee_id} not found"
+                }
+
+            # Check if payroll already exists for this period
+            existing = self.session.query(Payroll).filter_by(
+                employee_id=employee_id,
+                period_year=period_year,
+                period_month=period_month
+            ).first()
+
+            if existing:
+                return {
+                    "success": False,
+                    "error": "Payroll already exists for this period",
+                    "message": f"Payroll already exists for {period_year}-{period_month:02d}"
+                }
+
+            # Create payroll
+            period_start = kwargs.get('period_start', date(period_year, period_month, 1))
+            period_end = kwargs.get('period_end', date(period_year, period_month, 28))
+
+            payroll = Payroll(
+                employee_id=employee_id,
+                period_start=period_start,
+                period_end=period_end,
+                pay_date=kwargs.get('pay_date', period_end),
+                period_year=period_year,
+                period_month=period_month,
+                period_quarter=((period_month - 1) // 3) + 1,
+                bruto_total=kwargs.get('bruto_total', 0.0),
+                neto_total=kwargs.get('neto_total', 0.0),
+                irpf_base_monetaria=kwargs.get('irpf_base_monetaria', 0.0),
+                irpf_retencion_monetaria=kwargs.get('irpf_retencion_monetaria', 0.0),
+                ss_trabajador_total=kwargs.get('ss_trabajador_total', 0.0),
+                extraction_confidence=kwargs.get('extraction_confidence', 1.0)
+            )
+
+            self.session.add(payroll)
+            self.session.commit()
+
+            full_name = f"{employee.first_name} {employee.last_name}"
+            if employee.last_name2:
+                full_name += f" {employee.last_name2}"
+
+            return {
+                "success": True,
+                "data": payroll,
+                "message": f"Successfully created payroll for '{full_name}' - {period_year}-{period_month:02d} (ID: {payroll.id})"
+            }
+
+        except IntegrityError as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": f"Database integrity error: {e}",
+                "message": f"Failed to create payroll: {e}"
+            }
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to create payroll: {e}"
+            }
+
+    def get_payroll(self, payroll_id: int) -> Dict[str, Any]:
+        """
+        Get a specific payroll record
+
+        Args:
+            payroll_id: Payroll ID
+
+        Returns:
+            {"success": bool, "data": Payroll, "message": str}
+        """
+        try:
+            payroll = self.session.query(Payroll).filter_by(id=payroll_id).first()
+            if not payroll:
+                return {
+                    "success": False,
+                    "error": "Payroll not found",
+                    "message": f"Payroll with ID {payroll_id} not found"
+                }
+
+            return {
+                "success": True,
+                "data": payroll,
+                "message": f"Found payroll {payroll_id}"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to get payroll: {e}"
+            }
+
+    def update_payroll(self, payroll_id: int, **fields) -> Dict[str, Any]:
+        """
+        Update existing payroll details
+
+        Args:
+            payroll_id: Payroll ID
+            **fields: Fields to update
+
+        Returns:
+            {"success": bool, "data": Payroll, "message": str, "changes": dict}
+        """
+        try:
+            payroll = self.session.query(Payroll).filter_by(id=payroll_id).first()
+            if not payroll:
+                return {
+                    "success": False,
+                    "error": "Payroll not found",
+                    "message": f"Payroll with ID {payroll_id} not found"
+                }
+
+            # Track changes
+            changes = {}
+            updatable_fields = [
+                'period_start', 'period_end', 'pay_date', 'period_year', 'period_month',
+                'period_quarter', 'bruto_total', 'neto_total', 'irpf_base_monetaria',
+                'irpf_retencion_monetaria', 'ss_trabajador_total', 'extraction_confidence'
+            ]
+
+            for field, new_value in fields.items():
+                if field in updatable_fields and hasattr(payroll, field):
+                    old_value = getattr(payroll, field)
+                    if old_value != new_value:
+                        changes[field] = {"old": old_value, "new": new_value}
+                        setattr(payroll, field, new_value)
+
+            if not changes:
+                return {
+                    "success": True,
+                    "data": payroll,
+                    "message": "No changes made (all values same as current)",
+                    "changes": {}
+                }
+
+            self.session.commit()
+
+            return {
+                "success": True,
+                "data": payroll,
+                "message": f"Successfully updated payroll {payroll_id} ({len(changes)} field(s) changed)",
+                "changes": changes
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to update payroll: {e}"
+            }
+
+    def delete_payroll(self, payroll_id: int) -> Dict[str, Any]:
+        """
+        Delete a payroll record and all associated line items
+
+        This is a hard delete that permanently removes the payroll and cascades
+        to all related records (payroll lines, documents, etc.)
+
+        Args:
+            payroll_id: Payroll ID
+
+        Returns:
+            {"success": bool, "message": str, "deleted_counts": dict}
+        """
+        try:
+            payroll = self.session.query(Payroll).filter_by(id=payroll_id).first()
+            if not payroll:
+                return {
+                    "success": False,
+                    "error": "Payroll not found",
+                    "message": f"Payroll with ID {payroll_id} not found"
+                }
+
+            deleted_counts = {"payrolls": 0, "payroll_lines": 0}
+
+            # Delete associated payroll lines (cascade)
+            lines = self.session.query(PayrollLine).filter_by(payroll_id=payroll_id).all()
+            for line in lines:
+                self.session.delete(line)
+                deleted_counts["payroll_lines"] += 1
+
+            # Delete the payroll (will cascade to documents, checklist items, etc.)
+            self.session.delete(payroll)
+            deleted_counts["payrolls"] = 1
+            self.session.commit()
+
+            return {
+                "success": True,
+                "message": f"Successfully deleted payroll {payroll_id} and {deleted_counts['payroll_lines']} line(s)",
+                "deleted_counts": deleted_counts
+            }
+
+        except Exception as e:
+            self.session.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to delete payroll: {e}"
+            }
+
+    def list_payrolls(self, employee_id: Optional[int] = None, year: Optional[int] = None,
+                     month: Optional[int] = None, limit: int = 100) -> Dict[str, Any]:
+        """
+        List payrolls with optional filters
+
+        Args:
+            employee_id: Filter by employee (None = all employees)
+            year: Filter by year
+            month: Filter by month
+            limit: Maximum number of results
+
+        Returns:
+            {"success": bool, "data": List[Payroll], "count": int, "message": str}
+        """
+        try:
+            query = self.session.query(Payroll)
+
+            if employee_id:
+                query = query.filter_by(employee_id=employee_id)
+
+            if year:
+                query = query.filter_by(period_year=year)
+
+            if month:
+                query = query.filter_by(period_month=month)
+
+            payrolls = query.order_by(Payroll.period_year.desc(), Payroll.period_month.desc()).limit(limit).all()
+
+            return {
+                "success": True,
+                "data": payrolls,
+                "count": len(payrolls),
+                "message": f"Found {len(payrolls)} payroll(s)"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "data": [],
+                "count": 0,
+                "message": f"Failed to list payrolls: {e}"
+            }
+
+    # ========================================
+    # CRUD Operations - Search & Query Helpers
+    # ========================================
+
+    def search_employees(self, query: str, company_id: Optional[str] = None,
+                        limit: int = 20) -> Dict[str, Any]:
+        """
+        Search employees by name or ID number (fuzzy search)
+
+        Args:
+            query: Search term (name or ID)
+            company_id: Filter by company (optional)
+            limit: Maximum results
+
+        Returns:
+            {"success": bool, "data": List[Employee], "count": int, "message": str}
+        """
+        try:
+            from sqlalchemy import or_, func
+
+            search_query = self.session.query(Employee)
+
+            if company_id:
+                search_query = search_query.filter_by(company_id=company_id)
+
+            # Search across multiple fields
+            search_pattern = f"%{query}%"
+            search_query = search_query.filter(
+                or_(
+                    Employee.first_name.ilike(search_pattern),
+                    Employee.last_name.ilike(search_pattern),
+                    Employee.last_name2.ilike(search_pattern),
+                    Employee.identity_card_number.ilike(search_pattern),
+                    func.concat(Employee.first_name, ' ', Employee.last_name).ilike(search_pattern),
+                    func.concat(Employee.first_name, ' ', Employee.last_name, ' ', Employee.last_name2).ilike(search_pattern)
+                )
+            )
+
+            employees = search_query.limit(limit).all()
+
+            return {
+                "success": True,
+                "data": employees,
+                "count": len(employees),
+                "message": f"Found {len(employees)} employee(s) matching '{query}'"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "data": [],
+                "count": 0,
+                "message": f"Failed to search employees: {e}"
+            }
+
+    def get_employee_payrolls(self, employee_id: int, year: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Get all payrolls for a specific employee
+
+        Args:
+            employee_id: Employee ID
+            year: Filter by year (optional)
+
+        Returns:
+            {"success": bool, "data": List[Payroll], "count": int, "message": str}
+        """
+        try:
+            employee = self.session.query(Employee).filter_by(id=employee_id).first()
+            if not employee:
+                return {
+                    "success": False,
+                    "error": "Employee not found",
+                    "message": f"Employee with ID {employee_id} not found"
+                }
+
+            query = self.session.query(Payroll).filter_by(employee_id=employee_id)
+
+            if year:
+                query = query.filter_by(period_year=year)
+
+            payrolls = query.order_by(Payroll.period_year.desc(), Payroll.period_month.desc()).all()
+
+            full_name = f"{employee.first_name} {employee.last_name}"
+            if employee.last_name2:
+                full_name += f" {employee.last_name2}"
+
+            return {
+                "success": True,
+                "data": payrolls,
+                "count": len(payrolls),
+                "message": f"Found {len(payrolls)} payroll(s) for {full_name}"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "data": [],
+                "count": 0,
+                "message": f"Failed to get employee payrolls: {e}"
+            }
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """
+        Get overall database statistics
+
+        Returns:
+            {"success": bool, "stats": dict, "message": str}
+        """
+        try:
+            stats = {
+                "clients": {
+                    "total": self.session.query(Client).count(),
+                    "active": self.session.query(Client).filter_by(active=True).count()
+                },
+                "employees": {
+                    "total": self.session.query(Employee).count(),
+                    "active": self.session.query(Employee).filter_by(active=True).count()
+                },
+                "payrolls": {
+                    "total": self.session.query(Payroll).count()
+                },
+                "payroll_lines": {
+                    "total": self.session.query(PayrollLine).count()
+                },
+                "nomina_concepts": {
+                    "total": self.session.query(NominaConcept).count()
+                }
+            }
+
+            return {
+                "success": True,
+                "stats": stats,
+                "message": f"Database contains {stats['clients']['total']} client(s), {stats['employees']['total']} employee(s), {stats['payrolls']['total']} payroll(s)"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "stats": {},
+                "message": f"Failed to get database stats: {e}"
+            }
+
+    # ========================================
+    # Conversation memory helpers
+    # ========================================
+
+    def _add_to_memory_summary(self, message: Dict[str, str]) -> None:
+        """Append an evicted message to the rolling memory summary."""
+        snippet = f"{message['role'].capitalize()}: {message['content']}"
+        if self.memory_summary:
+            self.memory_summary = f"{self.memory_summary}\n{snippet}"
+        else:
+            self.memory_summary = snippet
+
+        # Trim the summary to avoid unbounded growth
+        if len(self.memory_summary) > self._summary_char_limit:
+            self.memory_summary = self.memory_summary[-self._summary_char_limit:]
+
+    def _append_conversation_message(self, role: str, content: str) -> None:
+        """Store a conversation message, keeping only the most recent turns."""
+        cleaned_content = content.strip()
+        if not cleaned_content:
+            return
+
+        # Evict oldest messages beyond the configured window
+        while len(self.conversation_history) >= self._max_history_messages:
+            dropped = self.conversation_history.popleft()
+            self._add_to_memory_summary(dropped)
+
+        self.conversation_history.append({
+            "role": role,
+            "content": cleaned_content
+        })
+
+    # ========================================
+    # Tool result serialization helpers
+    # ========================================
+
+    def _sanitize_value(self, value: Any) -> Any:
+        """Convert values to JSON-serializable primitives."""
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(value)
+
+    def _model_to_dict(self, instance: Any) -> Dict[str, Any]:
+        """Convert a SQLAlchemy model instance into a dict of column values."""
+        try:
+            mapper = sa_inspect(instance.__class__)
+        except Exception:
+            return {"repr": str(instance)}
+
+        data = {}
+        for column in mapper.columns:
+            column_key = column.key
+            value = getattr(instance, column_key, None)
+            data[column_key] = self._sanitize_value(value)
+        return data
+
+    def _serialize_tool_payload(self, value: Any) -> Any:
+        """Recursively serialize tool payloads into JSON-friendly structures."""
+        if isinstance(value, list):
+            return [self._serialize_tool_payload(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._serialize_tool_payload(item) for item in value]
+        if isinstance(value, set):
+            return [self._serialize_tool_payload(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._serialize_tool_payload(val) for key, val in value.items()}
+        if hasattr(value, "__table__") or hasattr(value, "__mapper__"):
+            return self._model_to_dict(value)
+        return self._sanitize_value(value)
+
     def _detect_file_paths(self, user_input: str, debug: bool = False) -> Dict[str, List[str]]:
         """Detect and validate file paths in user input"""
         detected_files = {
@@ -1309,8 +2569,16 @@ class ValeriaAgent:
                 unique_paths.append(path)
 
         # Validate and categorize files
+        allowed_extensions = {'.csv', '.pdf', '.zip'}
         for path in unique_paths:
-            path = path.strip()
+            path = path.strip().strip(".,;:")
+            if not path:
+                continue
+
+            ext = Path(path).suffix.lower()
+            # Only consider supported file types to avoid false positives (e.g., company names like "ACME S.L.")
+            if ext and ext not in allowed_extensions:
+                continue
 
             # Try original path first, then absolute path
             test_paths = [path, os.path.abspath(path)]
@@ -1333,10 +2601,12 @@ class ValeriaAgent:
                     break
 
             if not found:
-                if debug:
-                    abs_path = os.path.abspath(path)
-                    print(f"DEBUG: {path} -> {abs_path} (exists: False)")
-                detected_files['invalid_files'].append(path)
+                # Only flag as invalid if it matches supported extensions
+                if ext in allowed_extensions:
+                    if debug:
+                        abs_path = os.path.abspath(path)
+                        print(f"DEBUG: {path} -> {abs_path} (exists: False)")
+                    detected_files['invalid_files'].append(path)
 
         return detected_files
 
@@ -1406,13 +2676,15 @@ class ValeriaAgent:
         return None
 
     def _get_next_workflow_step(self) -> Optional[str]:
-        """Get the next step in the workflow"""
+        """Get the next step in the workflow - only for file processing mode"""
+        # Only suggest workflow steps if user seems to be in file processing mode
+        # Don't force it on CRUD operations
         if not self.processing_state['vida_laboral_processed']:
-            return "Please provide a vida laboral CSV file path"
+            return None  # Don't force CSV on every interaction
         elif self.processing_state['vida_laboral_processed'] and not self.processing_state['nominas_processed']:
-            return "Please provide nominas PDF files or ZIP file paths"
+            return "Next: Provide nominas PDF files or ZIP file paths (or ask me to manage database instead)"
         elif self.processing_state['nominas_processed'] > 0:
-            return "Workflow complete! You can process more files or generate additional reports"
+            return None  # Workflow complete, don't force more
         return None
 
     def run_conversation(self, user_input: str) -> str:
@@ -1420,6 +2692,22 @@ class ValeriaAgent:
         try:
             # Detect file paths in user input
             detected_files = self._detect_file_paths(user_input)
+
+            # Build user message with detected file context and store it
+            user_message_content = f"""User input: {user_input}
+
+Detected files:
+- CSV files: {detected_files['csv_files']}
+- PDF files: {detected_files['pdf_files']}
+- ZIP files: {detected_files['zip_files']}
+- Invalid files: {detected_files['invalid_files']}"""
+            self._append_conversation_message("user", user_message_content)
+
+            # Auto-progression: Process files immediately if detected
+            auto_result = self._auto_process_detected_files(detected_files)
+            if auto_result:
+                self._append_conversation_message("assistant", auto_result)
+                return auto_result
 
             # Build conversation context with strong system prompt
             messages = [
@@ -1439,15 +2727,88 @@ class ValeriaAgent:
 
 # TOOL DISCIPLINE
 – If you need to process files, CALL THE RELEVANT TOOL; do **not** guess.
-– Tool sequence:
-  1️⃣ Greet → ask for vida laboral CSV file path
-  2️⃣ Once CSV provided → call **process_vida_laboral_csv** immediately
-  3️⃣ After successful CSV processing → ask for nominas (PDFs or ZIP file)
-  4️⃣ If ZIP provided → call **extract_files_from_zip** then **process_payslip_batch**
-  5️⃣ If PDFs provided → call **process_payslip_batch** directly
-  6️⃣ After processing → call **generate_processing_report** automatically (JSON format)
-  7️⃣ Then call **generate_missing_payslips_report** automatically (JSON format)
-  8️⃣ Ask if user wants to process more files or exit
+
+# OPERATION MODES
+The agent supports TWO main modes of operation. Intelligently detect user intent:
+
+## MODE 1: PAYROLL PROCESSING WORKFLOW (File-Based)
+When user mentions files, documents, processing, or wants to import data:
+
+  1️⃣ If vida laboral CSV mentioned → call **process_vida_laboral_csv**
+  2️⃣ After CSV success → ask for nominas (PDFs or ZIP file)
+  3️⃣ If ZIP provided → call **extract_files_from_zip** then **process_payslip_batch**
+  4️⃣ If PDFs provided → call **process_payslip_batch** directly
+  5️⃣ After processing → call **generate_processing_report** (JSON format)
+  6️⃣ Then call **generate_missing_payslips_report** (JSON format)
+  7️⃣ Ask if user wants to process more files
+
+## MODE 2: DATABASE MANAGEMENT (CRUD Operations)
+When user wants to query, manage, or interact with existing data:
+
+  ✅ **Query Operations**: list_clients, list_employees, list_payrolls, search_employees, get_database_stats
+  ✅ **Create Operations**: create_client, create_employee, create_payroll
+  ✅ **Update Operations**: update_employee, update_client, update_payroll
+  ✅ **Delete Operations**: delete_employee, delete_client, delete_payroll
+
+**Examples of MODE 2 user requests:**
+  – "Show me all employees"
+  – "Create a new company called ACME"
+  – "Search for employees named García"
+  – "Update Juan's salary to 2500"
+  – "Delete employee ID 123"
+  – "Show database statistics"
+  – "List all payrolls for 2025"
+
+## INTELLIGENT MODE DETECTION
+
+**Detect MODE 1 (File Processing) when user:**
+  – Mentions file paths (.csv, .pdf, .zip)
+  – Says: "process", "import", "load", "upload", "extract"
+  – Provides vida laboral or nominas files
+  – Wants to digitize payroll documents
+
+**Detect MODE 2 (Database Operations) when user:**
+  – Asks about existing data ("show", "list", "find", "search")
+  – Wants to create/update/delete records
+  – Asks for statistics or summaries
+  – Makes database queries
+  – Doesn't mention files
+
+**Can switch modes mid-conversation!** User can process files AND then query data in same session.
+
+## ADAPTIVE GREETING
+
+**First interaction:**
+  – Don't immediately ask for CSV file
+  – Ask: "What would you like to do today?"
+  – Offer both options:
+    • "Process payroll documents (vida laboral CSV + nominas PDFs)"
+    • "Manage existing database (query, create, update employees/clients)"
+
+**Follow user's lead** – let them decide the mode, don't force the workflow.
+
+# CRUD OPERATION EXAMPLES
+
+**User:** "Show me all employees"
+**You:** [call list_employees] → Present results clearly
+
+**User:** "Create a company called Tech Solutions with CIF B12345678"
+**You:** [call create_client with name and cif] → Confirm creation
+
+**User:** "Search for employees named García"
+**You:** [call search_employees with query="García"] → Show results
+
+**User:** "Update employee 123's salary to 2800"
+**You:** [call update_employee with employee_id=123, salary=2800] → Show changes
+
+**User:** "What's in the database?"
+**You:** [call get_database_stats] → Show statistics
+
+**Key principles:**
+  – Call the appropriate tool immediately
+  – Don't ask for confirmation before calling tools
+  – Present results clearly and concisely
+  – Offer to help with next action
 
 # FILE HANDLING
 – Accept file paths in conversation (absolute, relative, or just filenames)
@@ -1456,10 +2817,10 @@ class ValeriaAgent:
 – Process files immediately when provided, don't wait for additional confirmation
 
 # WORKFLOW PERSISTENCE
-– Always move to next step after successful completion
+– In file processing mode, move to the next step after successful completion
 – If errors occur, guide user to fix and retry, don't stop the workflow
 – Remember processing state across conversation turns
-– Show current workflow step and what's needed next
+– Surface workflow guidance only when the user is in file processing mode
 
 # OUTPUT STYLING
 – Show processing results as clear summaries
@@ -1473,27 +2834,23 @@ Vida Laboral Processed: {self.processing_state['vida_laboral_processed']}
 Employees Created: {self.processing_state['employees_created']}
 Nominas Processed: {self.processing_state['nominas_processed']}
 """
-                },
-                {
-                    "role": "user",
-                    "content": f"""User input: {user_input}
-
-Detected files:
-- CSV files: {detected_files['csv_files']}
-- PDF files: {detected_files['pdf_files']}
-- ZIP files: {detected_files['zip_files']}
-- Invalid files: {detected_files['invalid_files']}"""
                 }
             ]
 
-            # Auto-progression: Process files immediately if detected
-            auto_result = self._auto_process_detected_files(detected_files)
-            if auto_result:
-                return auto_result
+            if self.memory_summary:
+                messages.append({
+                    "role": "system",
+                    "content": f"# MEMORY SUMMARY\n{self.memory_summary}"
+                })
+
+            messages.extend({
+                "role": entry["role"],
+                "content": entry["content"]
+            } for entry in self.conversation_history)
 
             # Call OpenAI with function calling
             response = self.client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-4.1-mini",
                 messages=messages,
                 tools=self.tools,
                 tool_choice="auto",
@@ -1524,10 +2881,65 @@ Detected files:
                             results.append(f"🔧 generate_missing_payslips_report: {missing_result.get('message', 'Completed')}")
                     elif function_name == "generate_missing_payslips_report":
                         result = self.generate_missing_payslips_report(**function_args)
+                    # CRUD Operations
+                    elif function_name == "create_client":
+                        result = self.create_client(**function_args)
+                    elif function_name == "create_employee":
+                        result = self.create_employee(**function_args)
+                    elif function_name == "create_payroll":
+                        result = self.create_payroll(**function_args)
+                    elif function_name == "update_employee":
+                        result = self.update_employee(**function_args)
+                    elif function_name == "update_client":
+                        result = self.update_client(**function_args)
+                    elif function_name == "update_payroll":
+                        result = self.update_payroll(**function_args)
+                    elif function_name == "delete_employee":
+                        result = self.delete_employee(**function_args)
+                    elif function_name == "delete_client":
+                        result = self.delete_client(**function_args)
+                    elif function_name == "delete_payroll":
+                        result = self.delete_payroll(**function_args)
+                    elif function_name == "list_clients":
+                        result = self.list_clients(**function_args)
+                    elif function_name == "list_employees":
+                        result = self.list_employees(**function_args)
+                    elif function_name == "list_payrolls":
+                        result = self.list_payrolls(**function_args)
+                    elif function_name == "search_employees":
+                        result = self.search_employees(**function_args)
+                    elif function_name == "get_employee_payrolls":
+                        result = self.get_employee_payrolls(**function_args)
+                    elif function_name == "get_database_stats":
+                        result = self.get_database_stats()
                     else:
                         result = {"success": False, "error": f"Unknown function: {function_name}"}
 
-                    results.append(f"🔧 {function_name}: {result.get('message', 'Completed')}")
+                    formatted_message = f"🔧 {function_name}: {result.get('message', 'Completed')}"
+                    if result.get('error'):
+                        formatted_message += f"\n❗ Error: {result['error']}"
+
+                    payload_keys = [
+                        key for key in result.keys()
+                        if key not in {"success", "message", "error"} and result[key] not in (None, [], {})
+                    ]
+                    if payload_keys:
+                        payload = {
+                            key: self._serialize_tool_payload(result[key])
+                            for key in payload_keys
+                        }
+                        try:
+                            serialized_payload = json.dumps(
+                                payload,
+                                ensure_ascii=False,
+                                default=str,
+                                indent=2
+                            )
+                        except TypeError:
+                            serialized_payload = str(payload)
+                        formatted_message += f"\n📊 Result payload:\n{serialized_payload}"
+
+                    results.append(formatted_message)
 
                     # Auto-progression: Move to next step after successful completion
                     if result.get('success'):
@@ -1535,68 +2947,30 @@ Detected files:
                         if next_step:
                             results.append(f"\n➡️  Next step: {next_step}")
 
-                return "\n".join(results)
+                assistant_response = "\n".join(results)
+                if assistant_response.strip():
+                    self._append_conversation_message("assistant", assistant_response)
+                return assistant_response
 
             # Return regular response with workflow guidance
-            response_content = message.content
+            response_content = message.content or ""
 
-            # Add workflow guidance if no files detected and not processed
-            if not any(detected_files.values()) and not self.processing_state['vida_laboral_processed']:
-                response_content += "\n\n💡 **Next step**: Please provide the path to your vida laboral CSV file (e.g., `/path/to/vida_laboral.csv` or drag and drop the file path here)"
-            elif self.processing_state['vida_laboral_processed'] and not self.processing_state['nominas_processed']:
-                response_content += "\n\n💡 **Next step**: Please provide nominas PDF files or ZIP file paths (e.g., `/path/to/nominas.zip` or `/path/to/*.pdf`)"
+            # Provide workflow guidance only when in file processing mode
+            next_step = self._get_next_workflow_step()
+            if next_step:
+                response_content += f"\n\n💡 {next_step}"
+
+            if response_content.strip():
+                self._append_conversation_message("assistant", response_content)
 
             return response_content
 
         except Exception as e:
-            return f"Error in conversation: {e}"
+            error_message = f"Error in conversation: {e}"
+            self._append_conversation_message("assistant", error_message)
+            return error_message
 
     def __del__(self):
         """Clean up database session"""
         if hasattr(self, 'session'):
             self.session.close()
-
-
-def main():
-    """Example usage"""
-    import argparse
-    from dotenv import load_dotenv
-
-    # Load environment variables from .env file
-    load_dotenv()
-
-    parser = argparse.ArgumentParser(description="ValerIA AI Agent for Spanish Payroll Processing")
-    parser.add_argument("--api-key", help="OpenAI API key (or set OPENAI_API_KEY in .env file)")
-    parser.add_argument("--interactive", action="store_true", help="Run in interactive mode")
-
-    args = parser.parse_args()
-
-    # Get API key from argument or environment variable
-    api_key = args.api_key or os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        print("❌ Error: OpenAI API key not found!")
-        print("   Please either:")
-        print("   1. Set OPENAI_API_KEY in your .env file")
-        print("   2. Use --api-key argument")
-        return
-
-    agent = ValeriaAgent(api_key)
-
-    if args.interactive:
-        print("🤖 ValerIA Agent initialized. Type 'quit' to exit.")
-        print("📋 Start by providing a vida laboral CSV file, then nominas PDFs or ZIP files.")
-
-        while True:
-            user_input = input("\n👤 You: ").strip()
-            if user_input.lower() in ['quit', 'exit', 'bye']:
-                break
-
-            response = agent.run_conversation(user_input)
-            print(f"\n🤖 ValerIA: {response}")
-    else:
-        print("Use --interactive for interactive mode")
-
-
-if __name__ == "__main__":
-    main()

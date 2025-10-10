@@ -81,9 +81,6 @@ class Employee(Base):
     role = Column(Text)
     employee_status = Column(Text)  # 'Active', 'Terminated', etc.
 
-    # Status
-    active = Column(Boolean, default=True)
-
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 

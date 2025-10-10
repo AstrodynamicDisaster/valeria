@@ -24,4 +24,4 @@ __pycache__/
 /reports/*
 
 # Documents storage
-/documents/*
+/docs/*
