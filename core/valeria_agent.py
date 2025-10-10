@@ -27,9 +27,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect as sa_inspect
 
 # Reuse existing modules
-from core.models import (
-    Base, Client, Employee, Payroll, PayrollLine,
-    NominaConcept, Document
+from core.models import (Client, Employee, Payroll, PayrollLine,
+    NominaConcept
 )
 from core.database import create_database_engine
 from core.production_models import (
@@ -784,8 +783,6 @@ class ValeriaAgent:
         with processed nomina records in the database.
         """
         try:
-            from datetime import date, timedelta
-            from dateutil.relativedelta import relativedelta
 
             # Use current client if not specified
             if not client_id:
@@ -1252,7 +1249,7 @@ class ValeriaAgent:
         total_time = time.time() - start_time
         avg_time_per_file = total_time / total_files if total_files > 0 else 0
 
-        print(f"\n✅ Processing completed!")
+        print("\n✅ Processing completed!")
         print(f"   📊 Processed: {processed_count}/{total_files} payslips")
         print(f"   ⏱️  Total time: {total_time:.1f}s (avg: {avg_time_per_file:.1f}s per file)")
         if failed_count > 0:
@@ -1419,11 +1416,11 @@ class ValeriaAgent:
             if '-' in date_str and len(date_str) == 10:
                 try:
                     return datetime.strptime(date_str, '%Y-%m-%d').date()
-                except:
+                except Exception:
                     # If YYYY-MM-DD fails, try DD-MM-YYYY
                     try:
                         return datetime.strptime(date_str, '%d-%m-%Y').date()
-                    except:
+                    except Exception:
                         pass
 
             # Try DD/MM/YYYY format
@@ -1543,7 +1540,7 @@ class ValeriaAgent:
                 "processing_state": self.processing_state,
                 "database_summary": report_data["database_summary"],
                 "file_path": file_path,
-                "message": f"Processing report generated successfully" + (f" - Saved to {file_path}" if file_path else "")
+                "message": "Processing report generated successfully" + (f" - Saved to {file_path}" if file_path else "")
             }
 
         except Exception as e:
@@ -2551,7 +2548,7 @@ class ValeriaAgent:
             try:
                 expanded_files = glob.glob(pattern)
                 potential_paths.extend(expanded_files)
-            except:
+            except Exception:  # noqa: E722
                 pass
 
         # Debug output

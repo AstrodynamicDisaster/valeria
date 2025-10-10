@@ -21,7 +21,7 @@ __pycache__/
 .idea/
 
 # Generated reports
-/reports/*
+/reports
 
 # Documents storage
-/docs/*
+/docs
