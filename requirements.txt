@@ -7,6 +7,10 @@ python-dotenv>=1.0.0
 weasyprint>=60.0  # Preferred - pure Python, no external dependencies
 # pdfkit>=1.0.0   # Alternative - requires wkhtmltopdf system installation
 
+# Web interface
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+
 # Optional: For AI vision model integration
 # openai>=1.0.0
 # anthropic>=0.8.0

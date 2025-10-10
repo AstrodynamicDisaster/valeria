@@ -248,20 +248,25 @@ def _call_openai_vision(client, base64_image):
         - Document ID (DNI/NIE)
         - Employee number/code if present
 
-        2. PAY PERIOD:
+        2. COMPANY INFORMATION:
+        - Company name (razón social / nombre empresa)
+        - Company CIF/NIF (tax identification number)
+        - Company address if visible
+
+        3. PAY PERIOD:
         - Period start date (fecha inicio)
         - Period end date (fecha fin)
         - Pay date (fecha pago)
         - Month and year
 
-        3. MONETARY AMOUNTS:
+        4. MONETARY AMOUNTS:
         - Total gross (bruto total)
         - Total net (neto a percibir)
         - IRPF withholding base (base IRPF)
         - IRPF withholding amount (retención IRPF)
         - Social Security employee contribution (cuota SS trabajador)
 
-        4. PAYROLL CONCEPT LINES:
+        5. PAYROLL CONCEPT LINES:
         For each concept line, extract:
         - Concept code (if visible)
         - Concept description (e.g., "Salario base", "Plus convenio", "IRPF", etc.)
@@ -273,6 +278,8 @@ def _call_openai_vision(client, base64_image):
           {
             "name": "Employee Full Name",
             "id": "12345678A",
+            "company_name": "ACME Corp S.L.",
+            "company_cif": "B12345678",
             "period_start": "2025-01-01",
             "period_end": "2025-01-31",
             "pay_date": "2025-01-31",
@@ -304,6 +311,7 @@ def _call_openai_vision(client, base64_image):
 
         IMPORTANT NOTES:
         - Extract ALL visible amounts and concepts
+        - Extract company information from the header/top of the payslip
         - Use negative amounts for deductions (IRPF, Social Security, etc.)
         - Include concept codes if visible (typically 3-digit numbers)
         - If dates are not clear, use reasonable defaults for the month/year visible
@@ -314,7 +322,7 @@ def _call_openai_vision(client, base64_image):
         """
         
         response = client.chat.completions.create(
-            model="gpt-4o",  # Use latest vision model
+            model="gpt-4.1-nano",  # Use latest vision model
             messages=[
                 {
                     "role": "user",
@@ -333,6 +341,7 @@ def _call_openai_vision(client, base64_image):
                 }
             ],
             max_tokens=1500
+            #max_completion_tokens=1500
         )
         
         content = response.choices[0].message.content

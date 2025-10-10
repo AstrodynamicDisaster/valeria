@@ -69,6 +69,10 @@ class ValeriaAgent:
             'nominas_processed': 0
         }
 
+        # Output control
+        self.verbose_mode = False  # Global toggle for technical details
+        self.last_tool_result = None  # Stores last operation result for on-demand access
+
         # Conversational memory (summary + recent turns)
         self.memory_summary: str = ""
         self.conversation_history: deque = deque()
@@ -127,14 +131,14 @@ class ValeriaAgent:
                 "type": "function",
                 "function": {
                     "name": "process_payslip_batch",
-                    "description": "Process multiple nomina PDF files and extract payroll data",
+                    "description": "Process multiple nomina PDF files and extract payroll data. Can accept PDF files, directories (will scan for PDFs), or ZIP archives (will extract PDFs).",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "pdf_files": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "List of paths to PDF files to process"
+                                "description": "List of paths to process - can include PDF files, directories, or ZIP files"
                             }
                         },
                         "required": ["pdf_files"]
@@ -1074,11 +1078,33 @@ class ValeriaAgent:
             }
 
     def process_payslip_batch(self, pdf_files: List[str]) -> Dict[str, Any]:
-        """Process multiple nomina PDFs - reuses existing process_payroll.py"""
-        if not self.processing_state['vida_laboral_processed']:
+        """
+        Process multiple nomina PDFs - reuses existing process_payroll.py
+
+        Args:
+            pdf_files: List of paths that can include:
+                - Individual PDF files
+                - Directories (will scan for PDFs recursively)
+                - ZIP archives (will extract PDFs)
+
+        Returns:
+            Dict with success status, results, and statistics
+        """
+        # Check if employees exist in database instead of using workflow flag
+        employee_count = self.session.query(Employee).count()
+        if employee_count == 0:
             return {
                 "success": False,
-                "message": "Please process vida laboral CSV first to create employee records"
+                "message": "No employees found in database. Please import vida laboral CSV or create employees first."
+            }
+
+        # Expand paths to get actual PDF files (handles directories and ZIPs)
+        expanded_pdf_files = self._collect_pdfs_from_paths(pdf_files)
+
+        if not expanded_pdf_files:
+            return {
+                "success": False,
+                "message": "No PDF files found in the provided paths."
             }
 
         processed_count = 0
@@ -1086,14 +1112,14 @@ class ValeriaAgent:
         results = []
 
         # Initialize progress tracking
-        total_files = len(pdf_files)
+        total_files = len(expanded_pdf_files)
         start_time = time.time()
 
         print(f"🔄 Processing {total_files} nomina PDF files...")
 
         # Create progress bar
         with tqdm(total=total_files, desc="Processing nominas", unit="file") as pbar:
-            for i, pdf_file in enumerate(pdf_files):
+            for i, pdf_file in enumerate(expanded_pdf_files):
                 try:
                     # Update progress bar with current file
                     pbar.set_description(f"Processing {os.path.basename(pdf_file)}")
@@ -1361,9 +1387,10 @@ class ValeriaAgent:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1-nano",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=10,
+                #max_completion_tokens=10,
                 temperature=0.1
             )
 
@@ -1431,39 +1458,190 @@ class ValeriaAgent:
         except Exception:
             return None
 
-    def _find_matching_employee(self, emp_info: Dict) -> Optional[Employee]:
-        """Match extracted employee info with database records"""
-        client_id = self.processing_state.get('client_id')
-        if not client_id:
-            return None
+    def _normalize_spanish_id(self, id_string: str) -> str:
+        """
+        Normalize Spanish DNI/NIE by fixing common OCR errors.
 
+        Spanish ID formats:
+        - DNI: 8 digits + 1 letter (e.g., 12345678A)
+        - NIE: 1 letter (X/Y/Z) + 7 digits + 1 letter (e.g., X1234567A)
+
+        Common OCR errors in NIE numbers:
+        - "2" at start → should be "Z"
+        - "K" at start → should be "X"
+        - "V" at start → should be "Y"
+
+        Args:
+            id_string: The ID string to normalize
+
+        Returns:
+            Normalized ID string
+        """
+        if not id_string:
+            return id_string
+
+        id_string = id_string.strip().upper()
+
+        # Pattern: digit + 7 digits + letter = likely NIE with misread first letter
+        # NIE format: [X/Y/Z][7 digits][letter]
+        if len(id_string) == 9 and id_string[0].isdigit() and id_string[-1].isalpha():
+            # Check if middle characters are all digits (typical NIE pattern)
+            if id_string[1:-1].isdigit():
+                first_char = id_string[0]
+
+                # Common OCR confusions for NIE prefix letters
+                if first_char == '2':
+                    # Most common: 2 → Z
+                    return 'Z' + id_string[1:]
+                elif first_char in ('K', 'k'):
+                    # Less common: K → X
+                    return 'X' + id_string[1:]
+                elif first_char in ('V', 'v'):
+                    # Less common: V → Y
+                    return 'Y' + id_string[1:]
+
+        return id_string
+
+    def _find_matching_employee(self, emp_info: Dict) -> Optional[Employee]:
+        """
+        Match extracted employee info with database records.
+
+        Priority:
+        1. Match by DNI/NIE (identity_card_number) - most reliable
+        2. Match by name (only if company_id is known) - fallback
+
+        If company_id is not set in processing_state, searches across ALL companies.
+        """
+        client_id = self.processing_state.get('client_id')
         name = emp_info.get('name', '').strip()
         emp_id = emp_info.get('id', '').strip()
 
-        # Try to match by ID first
-        if emp_id:
-            employee = self.session.query(Employee).filter_by(
-                client_id=client_id,
-                documento=emp_id
-            ).first()
-            if employee:
-                return employee
+        # Try to match company from extracted payslip data
+        if not client_id:
+            company_cif = emp_info.get('company_cif', '').strip()
+            company_name = emp_info.get('company_name', '').strip()
 
-        # Try to match by name (fuzzy matching could be added here)
-        if name:
+            # Try matching by CIF first (most reliable)
+            if company_cif:
+                print(f"🏢 Attempting to match company by CIF: {company_cif}")
+                company = self.session.query(Client).filter_by(cif=company_cif).first()
+                if company:
+                    client_id = company.id
+                    self.processing_state['client_id'] = client_id
+                    print(f"✅ Matched company from payslip CIF: {company.name} (ID: {company.id})")
+                else:
+                    print(f"⚠️  Company CIF '{company_cif}' not found in database")
+
+            # Fallback: Try matching by company name (less reliable)
+            if not client_id and company_name:
+                print(f"🏢 Attempting to match company by name: {company_name}")
+                # Try exact match first
+                company = self.session.query(Client).filter_by(name=company_name).first()
+                if not company:
+                    # Try case-insensitive partial match
+                    from sqlalchemy import func
+                    company = self.session.query(Client).filter(
+                        func.upper(Client.name).like(f"%{company_name.upper()}%")
+                    ).first()
+
+                if company:
+                    client_id = company.id
+                    self.processing_state['client_id'] = client_id
+                    print(f"✅ Matched company from payslip name: {company.name} (ID: {company.id})")
+                else:
+                    print(f"⚠️  Company name '{company_name}' not found in database")
+
+            # Update client_id variable for use in employee search below
+            if client_id:
+                print(f"🎯 Company context established: {client_id}")
+
+        # Try to match by DNI/NIE first (most reliable method)
+        if emp_id:
+            original_id = emp_id
+            print(f"🔍 Searching for employee with ID: {emp_id}")
+
+            # Normalize ID to fix common OCR errors
+            normalized_id = self._normalize_spanish_id(emp_id)
+            if normalized_id != emp_id:
+                print(f"   Normalized ID: {emp_id} → {normalized_id}")
+                emp_id = normalized_id
+
+            # Build list of ID variations to try (in priority order)
+            id_variations = [emp_id]  # Start with normalized version
+
+            # If ID starts with digit and matches NIE pattern, try X/Y/Z prefixes
+            if original_id != emp_id:
+                # Already tried normalization, add original as fallback
+                id_variations.append(original_id)
+
+            # If original starts with digit, try all NIE prefix variations
+            if original_id and original_id[0].isdigit() and len(original_id) == 9:
+                for prefix in ['Z', 'X', 'Y']:
+                    variant = prefix + original_id[1:]
+                    if variant not in id_variations:
+                        id_variations.append(variant)
+
+            # Try each variation
+            employee = None
+            for id_variant in id_variations:
+                # Build query - search across all companies if client_id not set
+                query = self.session.query(Employee).filter_by(identity_card_number=id_variant)
+
+                # Only filter by company if we have one (stricter matching)
+                if client_id:
+                    query = query.filter_by(company_id=client_id)
+                else:
+                    pass  # Search all companies
+
+                employee = query.first()
+                if employee:
+                    if id_variant != original_id:
+                        print(f"   ✅ Matched using variation: {original_id} → {id_variant}")
+                    break
+
+            # Print search context after trying all variations
+            if client_id and not employee:
+                print(f"   Limiting search to company: {client_id}")
+            elif not client_id:
+                print(f"   Searching across all companies (no company context)")
+
+            if employee:
+                print(f"✅ Found employee: {employee.first_name} {employee.last_name} (ID: {employee.id}, Company: {employee.company_id})")
+
+                # Auto-set client_id in processing state if not already set
+                if not client_id:
+                    self.processing_state['client_id'] = employee.company_id
+                    print(f"   Auto-detected company: {employee.company_id}")
+
+                return employee
+            else:
+                print(f"❌ No employee found with ID: {emp_id}")
+
+        # Try to match by name ONLY if we have company context
+        # (Name matching without company is too risky - could match wrong person)
+        if name and client_id:
+            print(f"🔍 Attempting name-based search: '{name}' in company {client_id}")
+
             # Search across first_name and last_name fields
             from sqlalchemy import or_, func
             employee = self.session.query(Employee).filter(
-                Employee.company_id == client_id,  # Updated from client_id
+                Employee.company_id == client_id,
                 or_(
                     Employee.first_name.ilike(f"%{name}%"),
                     Employee.last_name.ilike(f"%{name}%"),
                     func.concat(Employee.first_name, ' ', Employee.last_name).ilike(f"%{name}%")
                 )
             ).first()
-            if employee:
-                return employee
 
+            if employee:
+                print(f"✅ Found employee by name: {employee.first_name} {employee.last_name} (ID: {employee.id})")
+                return employee
+            else:
+                print(f"❌ No employee found by name matching")
+        elif name and not client_id:
+            print(f"⚠️  Skipping name-based search (no company context - too risky)")
+
+        print(f"❌ Could not match employee from payslip (name: '{name}', id: '{emp_id}')")
         return None
 
     def generate_processing_report(self, output_format: str = "json",
@@ -1479,9 +1657,9 @@ class ValeriaAgent:
             total_payrolls = self.session.query(Payroll).count()
 
             if client_id:
-                client_employees = self.session.query(Employee).filter_by(client_id=client_id).count()
+                client_employees = self.session.query(Employee).filter_by(company_id=client_id).count()
                 client_payrolls = self.session.query(Payroll).join(Employee).filter(
-                    Employee.client_id == client_id
+                    Employee.company_id == client_id
                 ).count()
             else:
                 client_employees = 0
@@ -2518,12 +2696,168 @@ class ValeriaAgent:
             return self._model_to_dict(value)
         return self._sanitize_value(value)
 
+    def _format_clients_list(self, clients: List[Client], count: int) -> str:
+        """Format clients list in human-readable table format"""
+        if not clients:
+            return "No companies found."
+
+        lines = [f"\n📊 Found {count} company/companies:\n"]
+        for client in clients:
+            lines.append(f"  • {client.name}")
+            lines.append(f"    CIF: {client.cif}")
+            lines.append(f"    ID: {client.id}")
+            if client.email:
+                lines.append(f"    Email: {client.email}")
+            if client.phone:
+                lines.append(f"    Phone: {client.phone}")
+            lines.append("")  # Blank line between companies
+        return "\n".join(lines)
+
+    def _format_employees_list(self, employees: List[Employee], count: int) -> str:
+        """Format employees list in human-readable table format"""
+        if not employees:
+            return "No employees found."
+
+        lines = [f"\n📊 Found {count} employee(s):\n"]
+        for emp in employees:
+            full_name = f"{emp.first_name} {emp.last_name}"
+            if emp.last_name2:
+                full_name += f" {emp.last_name2}"
+            lines.append(f"  • {full_name}")
+            lines.append(f"    ID: {emp.id} | {emp.identity_card_number}")
+            if emp.salary:
+                lines.append(f"    Salary: €{emp.salary:.2f}/month")
+            if emp.employee_status:
+                status_emoji = "✅" if emp.employee_status == "Active" else "❌"
+                lines.append(f"    Status: {status_emoji} {emp.employee_status}")
+            if emp.begin_date:
+                lines.append(f"    Start: {emp.begin_date}")
+            if emp.end_date:
+                lines.append(f"    End: {emp.end_date}")
+            lines.append("")  # Blank line between employees
+        return "\n".join(lines)
+
+    def _format_payrolls_list(self, payrolls: List[Payroll], count: int) -> str:
+        """Format payrolls list in human-readable table format"""
+        if not payrolls:
+            return "No payrolls found."
+
+        lines = [f"\n📊 Found {count} payroll(s):\n"]
+        for payroll in payrolls:
+            lines.append(f"  • Payroll #{payroll.id}")
+            lines.append(f"    Employee ID: {payroll.employee_id}")
+            lines.append(f"    Period: {payroll.period_month}/{payroll.period_year}")
+            if payroll.bruto_total:
+                lines.append(f"    Gross: €{payroll.bruto_total:.2f}")
+            if payroll.neto_total:
+                lines.append(f"    Net: €{payroll.neto_total:.2f}")
+            if payroll.irpf_retencion_monetaria:
+                lines.append(f"    IRPF: €{payroll.irpf_retencion_monetaria:.2f}")
+            lines.append("")  # Blank line between payrolls
+        return "\n".join(lines)
+
+    def _format_payslip_results(self, results: List[Dict], processed_count: int, failed_count: int, total_time: float) -> str:
+        """Format payslip processing results in human-readable format"""
+        if not results:
+            return "No payslips processed."
+
+        lines = []
+
+        if processed_count > 0:
+            lines.append(f"\n✅ Successfully processed {processed_count} payslip(s):\n")
+            for r in results:
+                if r.get('status') == 'processed':
+                    emp_name = r.get('employee', 'Unknown')
+                    period = r.get('period', 'Unknown')
+                    gross = r.get('gross')
+                    net = r.get('net')
+                    concepts = r.get('concepts', 0)
+
+                    # Parse period (format: "YYYY-MM")
+                    period_display = period
+                    if period and '-' in period:
+                        try:
+                            from datetime import datetime
+                            y, m = period.split('-')
+                            dt = datetime(int(y), int(m), 1)
+                            period_display = dt.strftime('%B %Y')
+                        except:
+                            pass
+
+                    lines.append(f"  • {emp_name} - {period_display}")
+                    if gross:
+                        lines.append(f"    Gross: €{gross:.2f}" + (f" | Net: €{net:.2f}" if net else ""))
+                    lines.append(f"    Concepts extracted: {concepts}")
+                    lines.append("")
+
+        if failed_count > 0:
+            lines.append(f"\n⚠️  Failed to process {failed_count} payslip(s):\n")
+            for r in results:
+                if r.get('status') != 'processed':
+                    emp_name = r.get('employee', 'Unknown')
+                    status = r.get('status', 'unknown_error')
+                    lines.append(f"  • {emp_name}: {status}")
+            lines.append("")
+
+        lines.append(f"⏱️  Processing time: {total_time:.1f}s")
+
+        return "\n".join(lines)
+
+    def _format_missing_payslips(self, missing_data: Dict) -> str:
+        """Format missing payslips report in human-readable format"""
+        if not missing_data or not missing_data.get('employees'):
+            return "\n✅ No missing payslips detected!"
+
+        lines = [f"\n⚠️  Missing Payslips Report:\n"]
+
+        for emp_data in missing_data.get('employees', []):
+            emp_name = emp_data.get('name', 'Unknown')
+            emp_id = emp_data.get('identity_card_number', '')
+            missing = emp_data.get('missing_payslips', [])
+
+            if missing:
+                lines.append(f"  👤 {emp_name} ({emp_id}):")
+                lines.append(f"     Missing {len(missing)} payslip(s):\n")
+
+                for period in missing:
+                    period_str = period.get('period', '')
+                    start = period.get('period_start', '')
+                    end = period.get('period_end', '')
+
+                    # Format dates nicely
+                    date_range = f"{start} to {end}" if start and end else period_str
+                    lines.append(f"       • {period_str} ({date_range})")
+
+                lines.append("")
+
+        return "\n".join(lines)
+
+    def _format_processing_summary(self, db_summary: Dict) -> str:
+        """Format processing/database summary in human-readable format"""
+        lines = ["\n📊 Database Summary:\n"]
+
+        if 'total_clients' in db_summary:
+            lines.append(f"  • Companies: {db_summary['total_clients']}")
+        if 'total_employees' in db_summary:
+            lines.append(f"  • Employees: {db_summary['total_employees']}")
+        if 'total_payrolls' in db_summary:
+            lines.append(f"  • Payrolls: {db_summary['total_payrolls']}")
+
+        # Show current client stats if available
+        if db_summary.get('current_client_employees', 0) > 0:
+            lines.append(f"\n  Current company:")
+            lines.append(f"    • Employees: {db_summary['current_client_employees']}")
+            lines.append(f"    • Payrolls: {db_summary['current_client_payrolls']}")
+
+        return "\n".join(lines)
+
     def _detect_file_paths(self, user_input: str, debug: bool = False) -> Dict[str, List[str]]:
-        """Detect and validate file paths in user input"""
+        """Detect and validate file paths and directories in user input"""
         detected_files = {
             'csv_files': [],
             'pdf_files': [],
             'zip_files': [],
+            'directories': [],
             'invalid_files': []
         }
 
@@ -2537,10 +2871,25 @@ class ValeriaAgent:
             r'\b([a-zA-Z0-9_-]+\.[a-zA-Z0-9]+)\b',                # Simple filenames (word boundaries)
         ]
 
+        # Also detect directory paths (paths without extensions)
+        directory_patterns = [
+            r'"([^"]+/)"',                                        # Quoted directory paths ending in /
+            r"'([^']+/)'",                                        # Single quoted directory paths
+            r'(/[a-zA-Z0-9_][^\s]*(?:test_data|payslips|data|docs)[^\s]*)',  # Paths with common directory names
+            r'(\./[^\s\.]+/?)',                                   # Relative paths starting with ./ without extension
+            r'([a-zA-Z0-9_][a-zA-Z0-9_/-]*[a-zA-Z0-9_]/)',        # Directory-like paths ending in /
+        ]
+
         potential_paths = []
+        potential_dirs = []
+
         for pattern in patterns:
             matches = re.findall(pattern, user_input)
             potential_paths.extend(matches)
+
+        for pattern in directory_patterns:
+            matches = re.findall(pattern, user_input)
+            potential_dirs.extend(matches)
 
         # Also check for glob patterns like *.pdf
         glob_patterns = re.findall(r'(\*\.[a-zA-Z0-9]+)', user_input)
@@ -2554,7 +2903,8 @@ class ValeriaAgent:
         # Debug output
         if debug:
             print(f"DEBUG: Input: {user_input}")
-            print(f"DEBUG: Potential paths found: {potential_paths}")
+            print(f"DEBUG: Potential file paths found: {potential_paths}")
+            print(f"DEBUG: Potential directory paths found: {potential_dirs}")
             print(f"DEBUG: Current working directory: {os.getcwd()}")
 
         # Remove duplicates while preserving order
@@ -2564,6 +2914,12 @@ class ValeriaAgent:
             if path not in seen:
                 seen.add(path)
                 unique_paths.append(path)
+
+        unique_dirs = []
+        for path in potential_dirs:
+            if path not in seen:
+                seen.add(path)
+                unique_dirs.append(path)
 
         # Validate and categorize files
         allowed_extensions = {'.csv', '.pdf', '.zip'}
@@ -2577,25 +2933,46 @@ class ValeriaAgent:
             if ext and ext not in allowed_extensions:
                 continue
 
-            # Try original path first, then absolute path
-            test_paths = [path, os.path.abspath(path)]
+            # Try multiple path resolution strategies
+            cwd = os.getcwd()
+            test_paths = [
+                path,  # Original path (might be absolute)
+                os.path.abspath(path),  # Absolute path from CWD
+                os.path.join(cwd, path),  # Explicitly join with CWD
+                os.path.join(cwd, 'test_data', path),  # Try test_data subdirectory
+                os.path.join(cwd, 'data', path),  # Try data subdirectory
+            ]
+
+            # Handle pseudo-absolute paths like /test_data/file.pdf
+            # These look absolute but are actually project-relative
+            if path.startswith('/'):
+                stripped_path = path.lstrip('/')
+                # Try as relative path
+                test_paths.extend([
+                    os.path.join(cwd, stripped_path),
+                    stripped_path  # Also try from current location
+                ])
 
             found = False
+            found_path = None
             for test_path in test_paths:
                 if os.path.exists(test_path):
                     ext = Path(test_path).suffix.lower()
                     if debug:
                         print(f"DEBUG: {path} -> {test_path} (exists: True, ext: {ext})")
 
-                    # Use original path for user-friendly display
-                    if ext == '.csv':
-                        detected_files['csv_files'].append(path)
-                    elif ext == '.pdf':
-                        detected_files['pdf_files'].append(path)
-                    elif ext == '.zip':
-                        detected_files['zip_files'].append(path)
+                    found_path = test_path
                     found = True
                     break
+
+            if found:
+                # Use found absolute path for processing
+                if ext == '.csv':
+                    detected_files['csv_files'].append(found_path)
+                elif ext == '.pdf':
+                    detected_files['pdf_files'].append(found_path)
+                elif ext == '.zip':
+                    detected_files['zip_files'].append(found_path)
 
             if not found:
                 # Only flag as invalid if it matches supported extensions
@@ -2605,7 +2982,87 @@ class ValeriaAgent:
                         print(f"DEBUG: {path} -> {abs_path} (exists: False)")
                     detected_files['invalid_files'].append(path)
 
+        # Validate and categorize directories
+        for dir_path in unique_dirs:
+            dir_path = dir_path.strip().strip(".,;:")
+            if not dir_path:
+                continue
+
+            cwd = os.getcwd()
+            test_paths = [
+                dir_path,
+                os.path.abspath(dir_path),
+                os.path.join(cwd, dir_path),
+                os.path.join(cwd, 'test_data', dir_path),
+                os.path.join(cwd, 'data', dir_path),
+            ]
+
+            # Handle pseudo-absolute directory paths
+            if dir_path.startswith('/'):
+                stripped_path = dir_path.lstrip('/')
+                test_paths.extend([
+                    os.path.join(cwd, stripped_path),
+                    stripped_path
+                ])
+
+            for test_path in test_paths:
+                if os.path.exists(test_path) and os.path.isdir(test_path):
+                    if debug:
+                        print(f"DEBUG: {dir_path} -> {test_path} (exists: True, is_dir: True)")
+                    detected_files['directories'].append(test_path)
+                    break
+
         return detected_files
+
+    def _collect_pdfs_from_paths(self, paths: List[str]) -> List[str]:
+        """
+        Collect all PDF files from a mix of PDF files, directories, and ZIP archives.
+
+        Args:
+            paths: List of paths that can be:
+                - Individual PDF files
+                - Directories (will recursively find all PDFs)
+                - ZIP files (will extract and find PDFs)
+
+        Returns:
+            Flat list of absolute paths to PDF files
+        """
+        pdf_files = []
+
+        for path in paths:
+            if not os.path.exists(path):
+                print(f"⚠️  Path does not exist: {path}")
+                continue
+
+            # Handle directories - recursively find all PDFs
+            if os.path.isdir(path):
+                print(f"📁 Scanning directory: {path}")
+                for root, dirs, files in os.walk(path):
+                    for file in files:
+                        if file.lower().endswith('.pdf'):
+                            full_path = os.path.join(root, file)
+                            pdf_files.append(full_path)
+                print(f"   Found {len([f for f in pdf_files if f.startswith(path)])} PDF(s)")
+
+            # Handle ZIP files - extract and get PDFs
+            elif path.lower().endswith('.zip'):
+                print(f"📦 Extracting ZIP: {path}")
+                result = self.extract_files_from_zip(path)
+                if result.get('success'):
+                    extracted_pdfs = result.get('pdf_files', [])
+                    pdf_files.extend(extracted_pdfs)
+                    print(f"   Extracted {len(extracted_pdfs)} PDF(s)")
+                else:
+                    print(f"   ❌ Failed to extract: {result.get('error', 'Unknown error')}")
+
+            # Handle individual PDF files
+            elif path.lower().endswith('.pdf'):
+                pdf_files.append(path)
+
+            else:
+                print(f"⚠️  Skipping unsupported file: {path}")
+
+        return pdf_files
 
     def _auto_process_detected_files(self, detected_files: Dict[str, List[str]]) -> Optional[str]:
         """Auto-process detected files based on workflow state"""
@@ -2627,28 +3084,24 @@ class ValeriaAgent:
 
         # Process nominas if detected and vida laboral is ready
         if self.processing_state['vida_laboral_processed']:
-            processed_files = []
+            paths_to_process = []
 
-            # Handle ZIP files first
+            # Collect all paths: PDFs, ZIPs, and directories
             if detected_files['zip_files']:
-                zip_file = detected_files['zip_files'][0]
-                results.append(f"🔍 Auto-detected nominas ZIP: {zip_file}")
-                extract_result = self.extract_files_from_zip(zip_file)
-                results.append(f"🔧 extract_files_from_zip: {extract_result.get('message', 'Completed')}")
+                paths_to_process.extend(detected_files['zip_files'])
+                results.append(f"🔍 Auto-detected {len(detected_files['zip_files'])} ZIP file(s)")
 
-                if extract_result.get('success'):
-                    pdf_files = extract_result.get('pdf_files', [])
-                    if pdf_files:
-                        processed_files.extend(pdf_files)
-
-            # Add directly provided PDF files
             if detected_files['pdf_files']:
-                processed_files.extend(detected_files['pdf_files'])
-                results.append(f"🔍 Auto-detected {len(detected_files['pdf_files'])} PDF files")
+                paths_to_process.extend(detected_files['pdf_files'])
+                results.append(f"🔍 Auto-detected {len(detected_files['pdf_files'])} PDF file(s)")
 
-            # Process all collected PDF files
-            if processed_files:
-                process_result = self.process_payslip_batch(processed_files)
+            if detected_files['directories']:
+                paths_to_process.extend(detected_files['directories'])
+                results.append(f"🔍 Auto-detected {len(detected_files['directories'])} directory(ies)")
+
+            # Process all collected paths (expansion happens in process_payslip_batch)
+            if paths_to_process:
+                process_result = self.process_payslip_batch(paths_to_process)
                 results.append(f"🔧 process_payslip_batch: {process_result.get('message', 'Completed')}")
 
                 if process_result.get('success'):
@@ -2687,6 +3140,41 @@ class ValeriaAgent:
     def run_conversation(self, user_input: str) -> str:
         """Main conversation loop with OpenAI function calling"""
         try:
+            # Handle meta commands first
+            user_input_lower = user_input.lower().strip()
+
+            # Show details / raw JSON of last operation
+            if user_input_lower in ['show details', 'show json', 'show raw', 'show last result', 'details']:
+                if self.last_tool_result:
+                    func_name = self.last_tool_result.get('function', 'Unknown')
+                    result = self.last_tool_result.get('result', {})
+                    timestamp = self.last_tool_result.get('timestamp', 'Unknown')
+
+                    response = f"📋 Last Operation: {func_name}\n"
+                    response += f"⏰ Timestamp: {timestamp}\n\n"
+                    response += "```json\n"
+                    response += json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                    response += "\n```"
+
+                    return response
+                else:
+                    return "ℹ️  No previous operation to show details for."
+
+            # Enable verbose mode
+            if user_input_lower in ['enable verbose', 'verbose on', 'verbose mode on', 'set verbose']:
+                self.verbose_mode = True
+                return "✅ Verbose mode enabled. Will show technical details with all outputs.\n💡 Use 'disable verbose' to turn off."
+
+            # Disable verbose mode
+            if user_input_lower in ['disable verbose', 'verbose off', 'verbose mode off', 'unset verbose']:
+                self.verbose_mode = False
+                return "✅ Verbose mode disabled. Showing clean output only.\n💡 Use 'enable verbose' to show technical details."
+
+            # Check for inline verbose request
+            force_verbose = any(keyword in user_input_lower for keyword in [
+                ' verbose', ' with details', ' show json', ' raw', ' technical'
+            ])
+
             # Detect file paths in user input
             detected_files = self._detect_file_paths(user_input)
 
@@ -2697,6 +3185,7 @@ Detected files:
 - CSV files: {detected_files['csv_files']}
 - PDF files: {detected_files['pdf_files']}
 - ZIP files: {detected_files['zip_files']}
+- Directories: {detected_files['directories']}
 - Invalid files: {detected_files['invalid_files']}"""
             self._append_conversation_message("user", user_message_content)
 
@@ -2820,7 +3309,15 @@ When user wants to query, manage, or interact with existing data:
 – Surface workflow guidance only when the user is in file processing mode
 
 # OUTPUT STYLING
-– Show processing results as clear summaries
+– Format ALL responses in GitHub-flavored Markdown
+– Use headers (##, ###) to organize sections
+– Use bullet lists (-, *) or numbered lists for multiple items
+– Use tables for structured/comparative data
+– Use code blocks with language tags (```python, ```json, ```sql) for code/data
+– Use **bold** for emphasis on key points
+– Use `inline code` for technical terms, file paths, function names
+– Use > blockquotes for important notes or warnings
+– Show processing results as clear, well-formatted summaries
 – Present errors with specific guidance for resolution
 – Keep conversation professional and workflow-focused
 
@@ -2912,29 +3409,77 @@ Nominas Processed: {self.processing_state['nominas_processed']}
                     else:
                         result = {"success": False, "error": f"Unknown function: {function_name}"}
 
+                    # Store result for on-demand access
+                    from datetime import datetime
+                    self.last_tool_result = {
+                        'function': function_name,
+                        'result': result,
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+
                     formatted_message = f"🔧 {function_name}: {result.get('message', 'Completed')}"
                     if result.get('error'):
                         formatted_message += f"\n❗ Error: {result['error']}"
 
-                    payload_keys = [
-                        key for key in result.keys()
-                        if key not in {"success", "message", "error"} and result[key] not in (None, [], {})
-                    ]
-                    if payload_keys:
-                        payload = {
-                            key: self._serialize_tool_payload(result[key])
-                            for key in payload_keys
-                        }
-                        try:
-                            serialized_payload = json.dumps(
-                                payload,
-                                ensure_ascii=False,
-                                default=str,
-                                indent=2
-                            )
-                        except TypeError:
-                            serialized_payload = str(payload)
-                        formatted_message += f"\n📊 Result payload:\n{serialized_payload}"
+                    # Use human-friendly formatters
+                    if function_name == "list_clients" and result.get('success') and 'data' in result:
+                        formatted_message += self._format_clients_list(result['data'], result.get('count', 0))
+                    elif function_name == "list_employees" and result.get('success') and 'data' in result:
+                        formatted_message += self._format_employees_list(result['data'], result.get('count', 0))
+                    elif function_name == "search_employees" and result.get('success') and 'data' in result:
+                        formatted_message += self._format_employees_list(result['data'], result.get('count', 0))
+                    elif function_name == "list_payrolls" and result.get('success') and 'data' in result:
+                        formatted_message += self._format_payrolls_list(result['data'], result.get('count', 0))
+                    elif function_name == "process_payslip_batch" and result.get('success'):
+                        formatted_message += self._format_payslip_results(
+                            result.get('results', []),
+                            result.get('processed_count', 0),
+                            result.get('failed_count', 0),
+                            result.get('total_time', 0)
+                        )
+                    elif function_name == "generate_missing_payslips_report" and result.get('success'):
+                        # Read the saved report file to get missing payslips data
+                        report_file = result.get('report_file')
+                        if report_file and os.path.exists(report_file):
+                            try:
+                                with open(report_file, 'r') as f:
+                                    missing_data = json.load(f)
+                                formatted_message += self._format_missing_payslips(missing_data)
+                            except Exception as e:
+                                print(f"Warning: Could not format missing payslips: {e}")
+                    elif function_name == "generate_processing_report" and result.get('success'):
+                        formatted_message += self._format_processing_summary(result.get('database_summary', {}))
+                    else:
+                        # For other tools, show compact payload (not full JSON dump)
+                        payload_keys = [
+                            key for key in result.keys()
+                            if key not in {"success", "message", "error", "data"} and result[key] not in (None, [], {})
+                        ]
+                        if payload_keys:
+                            payload = {
+                                key: self._serialize_tool_payload(result[key])
+                                for key in payload_keys
+                            }
+                            try:
+                                serialized_payload = json.dumps(
+                                    payload,
+                                    ensure_ascii=False,
+                                    default=str,
+                                    indent=2
+                                )
+                            except TypeError:
+                                serialized_payload = str(payload)
+                            formatted_message += f"\n📊 Result payload:\n{serialized_payload}"
+
+                    # Add technical details if verbose mode or force_verbose
+                    show_technical = self.verbose_mode or force_verbose
+                    if show_technical:
+                        formatted_message += "\n\n📋 Technical Details:"
+                        formatted_message += "\n```json\n"
+                        formatted_message += json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                        formatted_message += "\n```"
+                        if not self.verbose_mode:
+                            formatted_message += "\n\n💡 Tip: Use 'enable verbose' for persistent technical output"
 
                     results.append(formatted_message)
 

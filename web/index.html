@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ValerIA - Spanish Payroll AI Agent</title>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+
+    <!-- Code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1>🤖 ValerIA</h1>
+                <p class="subtitle">Spanish Payroll AI Agent</p>
+            </div>
+            <div class="header-actions">
+                <button id="clearBtn" class="btn-secondary" title="Clear conversation">
+                    🗑️ Clear
+                </button>
+            </div>
+        </header>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="welcome-message">
+                <h2>Welcome to ValerIA! 👋</h2>
+                <p>I can help you with:</p>
+                <ul>
+                    <li>📄 Import employee data from vida laboral CSV</li>
+                    <li>📋 Process payroll documents (nominas) from PDF files</li>
+                    <li>🏢 Manage companies, employees, and payroll records</li>
+                    <li>📊 Generate reports and detect missing payslips</li>
+                </ul>
+                <p class="tip">💡 Try: "Show me all companies" or upload a file to get started!</p>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <div class="file-upload-area" id="fileUploadArea">
+                <input type="file" id="fileInput" accept=".pdf,.csv,.zip" style="display: none;">
+                <button id="uploadBtn" class="btn-icon" title="Upload file">
+                    📎
+                </button>
+                <span id="fileName" class="file-name"></span>
+            </div>
+
+            <div class="markdown-toolbar">
+                <button class="md-btn" data-md="**" title="Bold (Ctrl+B)">B</button>
+                <button class="md-btn" data-md="*" title="Italic (Ctrl+I)">I</button>
+                <button class="md-btn" data-md="`" title="Inline code">&lt;/&gt;</button>
+                <button class="md-btn" data-md="```" title="Code block">{ }</button>
+                <button class="md-btn" data-md="- " title="List">≡</button>
+                <button class="md-btn" data-md="[]()" title="Link">🔗</button>
+            </div>
+
+            <div class="input-wrapper">
+                <textarea
+                    id="messageInput"
+                    placeholder="Type your message here... (markdown supported)"
+                    rows="1"
+                ></textarea>
+                <button id="sendBtn" class="btn-send" title="Send message">
+                    ➤
+                </button>
+            </div>
+        </div>
+
+        <div class="status-bar" id="statusBar">
+            Ready
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
