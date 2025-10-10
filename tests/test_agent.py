@@ -4,7 +4,12 @@ Test script for ValerIA agent fixes
 """
 
 import os
-from valeria_agent import ValeriaAgent
+import sys
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import ValeriaAgent
 
 def test_file_detection():
     """Test improved file path detection"""

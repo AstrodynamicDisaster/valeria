@@ -4,7 +4,12 @@ Example script showing how to use the missing payslip detection functionality
 """
 
 import os
-from valeria_agent import ValeriaAgent
+import sys
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import ValeriaAgent
 
 def example_missing_payslip_workflow():
     """Demonstrate the complete workflow for missing payslip detection"""

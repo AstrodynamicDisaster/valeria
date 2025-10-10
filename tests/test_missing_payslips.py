@@ -4,8 +4,13 @@ Test script for missing payslip detection functionality
 """
 
 import os
+import sys
 from datetime import date
-from valeria_agent import ValeriaAgent
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import ValeriaAgent
 
 def test_missing_payslip_detection():
     """Test the missing payslip detection system"""

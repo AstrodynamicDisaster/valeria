@@ -41,6 +41,10 @@ from .production_models import (
     list_production_employees_for_company
 )
 
+# Main application modules
+from .valeria_agent import ValeriaAgent
+from .process_payroll import extract_payroll_info
+
 __all__ = [
     # Models
     'Base',
@@ -71,5 +75,9 @@ __all__ = [
     'get_production_company_by_cif',
     'get_production_company_by_id',
     'get_production_employee_by_identity_card',
-    'list_production_employees_for_company'
+    'list_production_employees_for_company',
+
+    # Main application
+    'ValeriaAgent',
+    'extract_payroll_info'
 ]

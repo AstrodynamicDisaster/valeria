@@ -1,8 +1,27 @@
+# Environment and secrets
 .env
-/legacy
+
+# Archived/deprecated code
+/archive
+
+# Test and temporary data
 /test_data
 /temp*
-/__pycache__
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
 .DS_Store
+.vscode/
+.idea/
+
+# Generated reports
 /reports/*
-/core/__pycache__
+
+# Documents storage
+/documents/*

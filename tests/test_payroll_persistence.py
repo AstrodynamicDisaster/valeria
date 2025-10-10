@@ -10,7 +10,7 @@ from datetime import date
 # Add parent directory to path to import core module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from valeria_agent import ValeriaAgent
+from core import ValeriaAgent
 from core.models import Employee, Payroll
 from core.database import create_database_engine
 

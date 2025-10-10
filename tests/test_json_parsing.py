@@ -3,7 +3,13 @@
 Test script for robust JSON parsing functionality
 """
 
-from process_payroll import _clean_json_response, _repair_json, _robust_json_parse
+import os
+import sys
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.process_payroll import _clean_json_response, _repair_json, _robust_json_parse
 
 def test_json_parsing():
     """Test various malformed JSON scenarios that OpenAI might return"""

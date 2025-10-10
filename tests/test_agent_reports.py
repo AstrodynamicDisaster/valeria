@@ -4,8 +4,13 @@ Test script to verify that the ValerIA agent generates reports in JSON format
 """
 
 import os
+import sys
 import json
-from valeria_agent import ValeriaAgent
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import ValeriaAgent
 
 def test_report_generation():
     """Test that both reports are generated in JSON format"""

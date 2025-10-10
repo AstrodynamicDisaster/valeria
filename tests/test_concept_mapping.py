@@ -4,7 +4,12 @@ Test script for enhanced concept mapping system
 """
 
 import os
-from valeria_agent import ValeriaAgent
+import sys
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import ValeriaAgent
 
 def test_concept_mapping():
     """Test the AI-powered concept mapping system"""

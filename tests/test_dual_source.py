@@ -15,7 +15,7 @@ os.environ['USE_PRODUCTION_DATA'] = 'false'
 os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', 'dummy-key-for-testing')
 
 # Now import after path is set
-from valeria_agent import ValeriaAgent
+from core import ValeriaAgent
 
 # Test with local data
 print("=" * 60)
@@ -49,9 +49,9 @@ os.environ['USE_PRODUCTION_DATA'] = 'true'
 
 # Need to reload the module to pick up new env var
 import importlib
-import valeria_agent
-importlib.reload(valeria_agent)
-from valeria_agent import ValeriaAgent
+import core.valeria_agent
+importlib.reload(core.valeria_agent)
+from core import ValeriaAgent
 
 try:
     agent_prod = ValeriaAgent(os.environ['OPENAI_API_KEY'])
