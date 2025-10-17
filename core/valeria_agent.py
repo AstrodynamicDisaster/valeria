@@ -34,7 +34,7 @@ from core.database import create_database_engine
 from core.production_models import (
     create_production_engine, ProductionCompany, ProductionEmployee
 )
-from core.process_payroll import extract_payroll_info
+from core.payslip_parser import process_payslip
 
 
 class ValeriaAgent:
@@ -287,24 +287,50 @@ class ValeriaAgent:
                                 "type": "integer",
                                 "description": "Employee ID"
                             },
-                            "period_year": {
-                                "type": "integer",
-                                "description": "Payroll year"
+                            "periodo": {
+                                "type": "object",
+                                "description": "Payroll period data with start/end dates and days",
+                                "properties": {
+                                    "desde": {
+                                        "type": "string",
+                                        "description": "Period start in ISO format (YYYY-MM-DD)"
+                                    },
+                                    "hasta": {
+                                        "type": "string",
+                                        "description": "Period end in ISO format (YYYY-MM-DD)"
+                                    },
+                                    "dias": {
+                                        "type": "integer",
+                                        "description": "Number of days in the payroll period"
+                                    }
+                                },
+                                "required": ["desde", "hasta"]
                             },
-                            "period_month": {
-                                "type": "integer",
-                                "description": "Payroll month (1-12)"
-                            },
-                            "bruto_total": {
+                            "devengo_total": {
                                 "type": "number",
-                                "description": "Gross total amount"
+                                "description": "Total earnings (devengos)"
                             },
-                            "neto_total": {
+                            "deduccion_total": {
                                 "type": "number",
-                                "description": "Net total amount"
+                                "description": "Total deductions"
+                            },
+                            "aportacion_empresa_total": {
+                                "type": "number",
+                                "description": "Total employer contribution"
+                            },
+                            "liquido_a_percibir": {
+                                "type": "number",
+                                "description": "Net amount payable to employee"
+                            },
+                            "warnings": {
+                                "type": "array",
+                                "description": "Optional warnings or notes associated with the payroll",
+                                "items": {
+                                    "type": "string"
+                                }
                             }
                         },
-                        "required": ["employee_id", "period_year", "period_month"]
+                        "required": ["employee_id", "periodo"]
                     }
                 }
             },
@@ -689,51 +715,36 @@ class ValeriaAgent:
 
             self.processing_state['client_id'] = client.id
 
-            # Process CSV - reuse CSV parsing patterns from existing code
+            # Process CSV with separate logic for ALTA/BAJA/VAC.RETRIB.NO
             employees_created = 0
             employees_updated = 0
+            vacation_periods_created = 0
+
+            # Import VacationPeriod model
+            from .models import VacationPeriod
 
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    documento = row['documento']
+                    # Get documento and strip leading zeros (e.g., "0X1234567" -> "X1234567")
+                    documento = row['documento'].lstrip('0')
                     nombre = row['nombre']
                     situacion = row['situacion']
                     f_real_alta = row.get('f_real_alta', '')
+                    f_efecto_alta = row.get('f_efecto_alta', '')
                     f_real_sit = row.get('f_real_sit', '')
+                    tipo_contrato = row.get('codigo_contrato', '')
 
-                    # Parse Spanish name format: "SURNAME1 SURNAME2 --- FIRSTNAME" (updated for new schema)
-                    if ' --- ' in nombre:
-                        apellidos, nombre_propio = nombre.split(' --- ', 1)
-                        first_name = nombre_propio.strip()
+                    first_name, last_name, last_name2 = self._parse_spanish_name(nombre)
 
-                        # Split surnames
-                        surname_parts = apellidos.strip().split()
-                        last_name = surname_parts[0] if len(surname_parts) > 0 else "Unknown"
-                        last_name2 = surname_parts[1] if len(surname_parts) > 1 else None
-                    else:
-                        # Fallback: assume first word is first name, rest is surname
-                        name_parts = nombre.strip().split()
-                        first_name = name_parts[0] if len(name_parts) > 0 else "Unknown"
-                        last_name = name_parts[1] if len(name_parts) > 1 else "Unknown"
-                        last_name2 = name_parts[2] if len(name_parts) > 2 else None
-
-                    # Parse employment dates
-                    begin_date = self._parse_date(f_real_alta) if f_real_alta else None  # Renamed
-                    end_date = None  # Renamed
-                    if situacion == 'BAJA' and f_real_sit:
-                        end_date = self._parse_date(f_real_sit)
-
-                    # Determine document type
+                    # Determine document type (check AFTER stripping leading zeros)
                     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
 
-                    # Check if employee exists (updated field names)
-                    employee = self.session.query(Employee).filter_by(
-                        company_id=client.id,  # Updated from client_id
-                        identity_card_number=documento  # Updated from documento
-                    ).first()
+                    # BRANCH BY SITUACION TYPE
+                    if situacion == 'ALTA':
+                        # Always create NEW employee record for each ALTA (new employment period)
+                        begin_date = self._parse_date(f_efecto_alta) if f_efecto_alta else None
 
-                    if not employee:
                         employee = Employee(
                             company_id=client.id,
                             first_name=first_name,
@@ -743,22 +754,83 @@ class ValeriaAgent:
                             identity_doc_type=identity_doc_type,
                             ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",
                             begin_date=begin_date,
-                            end_date=end_date,
+                            end_date=None,  # Active until BAJA
                             salary=1500.00,  # Default salary
                             role="Empleado",  # Default role
-                            employee_status='Terminated' if end_date else 'Active'
+                            employee_status='Active',
+                            tipo_contrato=tipo_contrato
                         )
                         self.session.add(employee)
                         employees_created += 1
-                    else:
-                        # Update existing employee
-                        employee.first_name = first_name
-                        employee.last_name = last_name
-                        employee.last_name2 = last_name2
-                        employee.begin_date = begin_date
-                        employee.end_date = end_date
-                        employee.employee_status = 'Terminated' if end_date else 'Active'
-                        employees_updated += 1
+                        print(f"✅ Created new employment period for {nombre} starting {begin_date}")
+
+                    elif situacion == 'BAJA':
+                        # Find most recent ACTIVE employee (end_date=None) with this DNI
+                        employee = self.session.query(Employee).filter_by(
+                            company_id=client.id,
+                            identity_card_number=documento,
+                            end_date=None  # Only active periods
+                        ).order_by(Employee.begin_date.desc()).first()
+
+                        if employee:
+                            # Set termination date
+                            end_date = self._parse_date(f_real_sit) if f_real_sit else None
+                            employee.end_date = end_date
+                            employee.employee_status = 'Terminated'
+                            employees_updated += 1
+                            print(f"✅ Closed employment period for {nombre} ending {end_date}")
+                        else:
+                            print(f"⚠️  BAJA record without matching ALTA for {nombre} ({documento})")
+                            # Create terminated employee record as fallback
+                            begin_date = self._parse_date(f_efecto_alta) if f_efecto_alta else None
+                            end_date = self._parse_date(f_real_sit) if f_real_sit else None
+                            employee = Employee(
+                                company_id=client.id,
+                                first_name=first_name,
+                                last_name=last_name,
+                                last_name2=last_name2,
+                                identity_card_number=documento,
+                                identity_doc_type=identity_doc_type,
+                                ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",
+                                begin_date=begin_date,
+                                end_date=end_date,
+                                salary=1500.00,
+                                role="Empleado",
+                                employee_status='Terminated',
+                                tipo_contrato=tipo_contrato
+                            )
+                            self.session.add(employee)
+                            employees_created += 1
+
+                    elif situacion == 'VAC.RETRIB.NO':
+                        # Find the most recent employee (active or terminated) for vacation assignment
+                        employee = self.session.query(Employee).filter_by(
+                            company_id=client.id,
+                            identity_card_number=documento
+                        ).order_by(Employee.begin_date.desc()).first()
+
+                        if employee:
+                            # Vacation dates: start in f_efecto_alta, end in f_real_sit
+                            vacation_start = self._parse_date(f_efecto_alta) if f_efecto_alta else None
+                            vacation_end = self._parse_date(f_real_sit) if f_real_sit else None
+
+                            # Both dates required for vacation records
+                            if not vacation_start or not vacation_end:
+                                print(f"⚠️  Skipping VAC.RETRIB.NO for {nombre} ({documento}): missing dates")
+                                continue
+
+                            vacation = VacationPeriod(
+                                employee_id=employee.id,
+                                start_date=vacation_start,
+                                end_date=vacation_end,
+                                vacation_type='VAC.RETRIB.NO',
+                                notes=f"Imported from vida laboral: {nombre}"
+                            )
+                            self.session.add(vacation)
+                            vacation_periods_created += 1
+                            print(f"✅ Added vacation period for {nombre} ({vacation_start} to {vacation_end})")
+                        else:
+                            print(f"⚠️  VAC.RETRIB.NO record without employee for {nombre} ({documento})")
 
             self.session.commit()
             self.processing_state['vida_laboral_processed'] = True
@@ -770,7 +842,8 @@ class ValeriaAgent:
                 "client_name": client_name,
                 "employees_created": employees_created,
                 "employees_updated": employees_updated,
-                "message": f"Successfully processed vida laboral for {client_name}"
+                "vacation_periods_created": vacation_periods_created,
+                "message": f"Created {employees_created} employment periods, updated {employees_updated}, created {vacation_periods_created} vacation periods for {client_name}"
             }
 
         except Exception as e:
@@ -838,7 +911,11 @@ class ValeriaAgent:
                     employee_id=employee.id
                 ).all()
 
-                processed_months = {(p.period_year, p.period_month) for p in processed_nominas}
+                processed_months = set()
+                for payroll in processed_nominas:
+                    ref_date = self._period_reference_date(getattr(payroll, 'periodo', None))
+                    if ref_date:
+                        processed_months.add((ref_date.year, ref_date.month))
 
                 # Find missing months
                 missing_months = []
@@ -1077,7 +1154,7 @@ class ValeriaAgent:
                 "message": f"Failed to extract ZIP file: {e}"
             }
 
-    def process_payslip_batch(self, pdf_files: List[str]) -> Dict[str, Any]:
+    def process_payslip_batch(self, pdf_files: List[str], batch_size: int = 50) -> Dict[str, Any]:
         """
         Process multiple nomina PDFs - reuses existing process_payroll.py
 
@@ -1086,10 +1163,12 @@ class ValeriaAgent:
                 - Individual PDF files
                 - Directories (will scan for PDFs recursively)
                 - ZIP archives (will extract PDFs)
+            batch_size: Number of payroll records to process before committing (default: 50)
 
         Returns:
             Dict with success status, results, and statistics
         """
+
         # Check if employees exist in database instead of using workflow flag
         employee_count = self.session.query(Employee).count()
         if employee_count == 0:
@@ -1110,12 +1189,15 @@ class ValeriaAgent:
         processed_count = 0
         failed_count = 0
         results = []
+        records_since_commit = 0  # Track records added since last batch commit
+        batch_commit_count = 0    # Track total number of batch commits
 
         # Initialize progress tracking
         total_files = len(expanded_pdf_files)
         start_time = time.time()
 
         print(f"🔄 Processing {total_files} nomina PDF files...")
+        print(f"💿 Batch commits every {batch_size} records")
 
         # Create progress bar
         with tqdm(total=total_files, desc="Processing nominas", unit="file") as pbar:
@@ -1124,94 +1206,130 @@ class ValeriaAgent:
                     # Update progress bar with current file
                     pbar.set_description(f"Processing {os.path.basename(pdf_file)}")
 
-                    # Session state is managed globally - don't rollback individual files
-
-                    # Reuse existing PDF processing function
-                    employee_data = extract_payroll_info(pdf_file, self.client.api_key)
+                    # Reuse existing PDF processing function with caching
+                    employee_data = process_payslip(pdf_file)
 
                     if employee_data:
                         for emp_info in employee_data:
                             try:
+                                # Validate extracted data quality before attempting match
+                                name = emp_info["trabajador"]["nombre"].strip()
+                                emp_id = emp_info["trabajador"]["nombre"].strip()
+
+                                if not name and not emp_id:
+                                    print(f"⚠️  SKIPPING: Empty extraction (no name and no ID)")
+                                    period_label = self._format_periodo(emp_info.get('periodo'))
+                                    totales = emp_info.get('totales') or {}
+                                    print(f"   Periodo: {period_label}")
+                                    print(f"   Devengos: {totales.get('devengo_total')}, Neto: {totales.get('liquido_a_percibir')}")
+                                    failed_count += 1
+                                    results.append({
+                                        "file": pdf_file,
+                                        "employee": "Unknown",
+                                        "status": "failed",
+                                        "reason": "extraction_failed",
+                                        "details": "Vision API returned empty name and ID"
+                                    })
+                                    continue
+
                                 # Try to match with existing employees
                                 employee = self._find_matching_employee(emp_info)
 
                                 if employee:
-                                    # Parse date information
-                                    period_start = self._parse_date(emp_info.get('period_start'))
-                                    period_end = self._parse_date(emp_info.get('period_end'))
-                                    pay_date = self._parse_date(emp_info.get('pay_date'))
+                                    periodo_data = emp_info.get('periodo') or {}
+                                    if not isinstance(periodo_data, dict):
+                                        periodo_data = {}
 
-                                    # Calculate period info
-                                    period_year = emp_info.get('period_year', period_start.year if period_start else 2025)
-                                    period_month = emp_info.get('period_month', period_start.month if period_start else 1)
-                                    period_quarter = ((period_month - 1) // 3) + 1
+                                    # Fallback for legacy fields if periodo not present
+                                    if not periodo_data:
+                                        legacy_start = self._parse_date(emp_info.get('period_start'))
+                                        legacy_end = self._parse_date(emp_info.get('period_end'))
+                                        periodo_data = {
+                                            "desde": legacy_start.isoformat() if legacy_start else None,
+                                            "hasta": legacy_end.isoformat() if legacy_end else None,
+                                            "dias": emp_info.get('days_worked')
+                                        }
 
-                                    # Create payroll record with real extracted data
+                                    # Normalize periodo dict by removing None-only keys
+                                    periodo_data = {k: v for k, v in periodo_data.items() if v is not None}
+
+                                    totals = emp_info.get('totales') or {}
+                                    warnings_list = emp_info.get('warnings') or []
+                                    warnings_text = json.dumps(warnings_list, ensure_ascii=False) if warnings_list else None
+
                                     payroll = Payroll(
                                         employee_id=employee.id,
-                                        period_start=period_start or date(period_year, period_month, 1),
-                                        period_end=period_end or date(period_year, period_month, 28),
-                                        pay_date=pay_date or period_end or date(period_year, period_month, 28),
-                                        period_year=period_year,
-                                        period_month=period_month,
-                                        period_quarter=period_quarter,
-                                        bruto_total=emp_info.get('bruto_total'),
-                                        neto_total=emp_info.get('neto_total'),
-                                        irpf_base_monetaria=emp_info.get('irpf_base'),
-                                        irpf_retencion_monetaria=emp_info.get('irpf_retencion'),
-                                        ss_trabajador_total=emp_info.get('ss_trabajador'),
-                                        extraction_confidence=0.8  # Could be improved with confidence scoring
+                                        periodo=periodo_data or {},
+                                        devengo_total=totals.get('devengo_total'),
+                                        deduccion_total=totals.get('deduccion_total'),
+                                        aportacion_empresa_total=totals.get('aportacion_empresa_total'),
+                                        liquido_a_percibir=totals.get('liquido_a_percibir'),
+                                        warnings=warnings_text
                                     )
                                     self.session.add(payroll)
                                     self.session.flush()  # Get the payroll ID
 
-                                    # Create PayrollLine records for concept lines
-                                    concept_lines = emp_info.get('concept_lines', [])
-                                    for concept in concept_lines:
-                                        # Prepare context for AI mapping
-                                        context = {
-                                            'amount': concept.get('amount', 0),
-                                            'other_concepts': [c.get('concept_desc', '') for c in concept_lines]
-                                        }
+                                    # Create PayrollLine records from extracted JSON arrays
+                                    line_collections = [
+                                        ("devengo", emp_info.get('devengo_items') or []),
+                                        ("deduccion", emp_info.get('deduccion_items') or []),
+                                        ("aportacion_empresa", emp_info.get('aportacion_empresa_items') or []),
+                                    ]
 
-                                        # Map concept description to database concept code
-                                        concept_code = self._map_concept_to_code(concept.get('concept_desc', ''), context)
+                                    line_count = 0
+                                    for category, items in line_collections:
+                                        for item in items:
+                                            concepto = item.get('concepto')
+                                            importe_value = item.get('importe')
 
-                                        # Only create payroll line if we have a valid concept code
-                                        if concept_code:
-                                            try:
-                                                payroll_line = PayrollLine(
-                                                    payroll_id=payroll.id,
-                                                    concept_desc=concept.get('concept_desc', ''),
-                                                    concept_code=concept_code,
-                                                    is_devengo=concept.get('is_devengo', True),
-                                                    is_deduccion=concept.get('is_deduccion', False),
-                                                    importe_devengo=concept.get('amount') if concept.get('amount', 0) > 0 else None,
-                                                    importe_deduccion=abs(concept.get('amount')) if concept.get('amount', 0) < 0 else None,
-                                                    tributa_irpf=concept.get('concept_desc', '').upper().find('IRPF') == -1  # Simplified logic
-                                                )
-                                                self.session.add(payroll_line)
-                                            except Exception as e:
-                                                print(f"Warning: Could not add payroll line for '{concept.get('concept_desc', '')}': {e}")
-                                                # Continue processing other concepts
+                                            if concepto is None or importe_value is None:
                                                 continue
-                                        else:
-                                            print(f"Warning: No concept code found for '{concept.get('concept_desc', '')}' - skipping")
+
+                                            base_value = item.get('base')
+                                            tipo_value = item.get('tipo')
+
+                                            payroll_line = PayrollLine(
+                                                payroll_id=payroll.id,
+                                                category=category,
+                                                concepto=concepto,
+                                                importe=Decimal(str(importe_value)),
+                                                base=Decimal(str(base_value)) if base_value is not None else None,
+                                                tipo=Decimal(str(tipo_value)) if tipo_value is not None else None,
+                                            )
+                                            self.session.add(payroll_line)
+                                            line_count += 1
 
                                     processed_count += 1
+                                    records_since_commit += 1
+
+                                    # Batch commit: Save every batch_size records
+                                    if records_since_commit >= batch_size:
+                                        try:
+                                            self.session.commit()
+                                            batch_commit_count += 1
+                                            print(f"\n💿 Batch commit #{batch_commit_count}: Saved {records_since_commit} records (total: {processed_count})")
+                                            records_since_commit = 0
+                                        except Exception as commit_error:
+                                            print(f"\n⚠️  Batch commit failed: {commit_error}")
+                                            print(f"   Rolling back last {records_since_commit} records...")
+                                            self.session.rollback()
+                                            # Adjust processed_count to reflect rollback
+                                            processed_count -= records_since_commit
+                                            records_since_commit = 0
 
                                     # Build full name
                                     emp_full_name = f"{employee.first_name} {employee.last_name}"
                                     if employee.last_name2:
                                         emp_full_name += f" {employee.last_name2}"
 
+                                    period_label = self._format_periodo(periodo_data)
                                     results.append({
                                         "employee": emp_full_name,  # Updated to use constructed name
                                         "file": pdf_file,
-                                        "period": f"{period_year}-{period_month:02d}",
-                                        "gross": emp_info.get('bruto_total'),
-                                        "net": emp_info.get('neto_total'),
-                                        "concepts": len(concept_lines),
+                                        "periodo": period_label,
+                                        "devengo_total": totals.get('devengo_total'),
+                                        "liquido_a_percibir": totals.get('liquido_a_percibir'),
+                                        "lines": line_count,
                                         "status": "processed"
                                     })
                                 else:
@@ -1267,19 +1385,46 @@ class ValeriaAgent:
 
                     pbar.update(1)
 
-        # Commit all changes and show final summary
-        self.session.commit()
-        self.processing_state['nominas_processed'] = processed_count
+        # Final commit: Save any remaining records not yet committed
+        if records_since_commit > 0:
+            try:
+                self.session.commit()
+                batch_commit_count += 1
+                print(f"\n💿 Final commit: Saved {records_since_commit} remaining records")
+            except Exception as commit_error:
+                print(f"\n⚠️  Final commit failed: {commit_error}")
+                print(f"   Rolling back last {records_since_commit} records...")
+                self.session.rollback()
+                processed_count -= records_since_commit
+                records_since_commit = 0
 
         # Calculate total processing time
         total_time = time.time() - start_time
         avg_time_per_file = total_time / total_files if total_files > 0 else 0
 
+        # Analyze failure reasons
+        failure_stats = {}
+        for result in results:
+            if result.get('status') != 'processed':
+                reason = result.get('reason', result.get('status', 'unknown'))
+                failure_stats[reason] = failure_stats.get(reason, 0) + 1
+
         print("\n✅ Processing completed!")
         print(f"   📊 Processed: {processed_count}/{total_files} payslips")
         print(f"   ⏱️  Total time: {total_time:.1f}s (avg: {avg_time_per_file:.1f}s per file)")
+        print(f"   💿 Batch commits: {batch_commit_count} (every {batch_size} records)")
+
         if failed_count > 0:
-            print(f"   ⚠️  Failed: {failed_count} files")
+            print(f"   ⚠️  Failed: {failed_count} payslips")
+            print(f"\n   📈 Failure breakdown:")
+            for reason, count in sorted(failure_stats.items(), key=lambda x: x[1], reverse=True):
+                print(f"      • {reason}: {count}")
+
+        # Count total extractions attempted
+        total_extractions = sum(1 for r in results if 'status' in r)
+        print(f"\n   📋 Total extractions from PDFs: {total_extractions}")
+        print(f"   ✅ Successful matches: {processed_count} ({processed_count/total_extractions*100:.1f}%)" if total_extractions > 0 else "")
+        print(f"   ❌ Failed matches: {failed_count} ({failed_count/total_extractions*100:.1f}%)" if total_extractions > 0 else "")
 
         return {
             "success": True,
@@ -1288,7 +1433,8 @@ class ValeriaAgent:
             "results": results,
             "total_time": total_time,
             "avg_time_per_file": avg_time_per_file,
-            "message": f"Processed {processed_count} payslips with complete data extraction, {failed_count} failed (took {total_time:.1f}s)"
+            "batch_commits": batch_commit_count,
+            "message": f"Processed {processed_count} payslips with complete data extraction, {failed_count} failed (took {total_time:.1f}s, {batch_commit_count} batch commits)"
         }
 
     def _load_concept_mappings(self) -> Dict[str, Dict]:
@@ -1387,7 +1533,7 @@ class ValeriaAgent:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4.1-nano",
+                model="gpt-4.1-nano-2025-04-14",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=10,
                 #max_completion_tokens=10,
@@ -1458,6 +1604,72 @@ class ValeriaAgent:
         except Exception:
             return None
 
+    def _extract_period_dates(self, periodo: Optional[Dict[str, Any]]) -> Tuple[Optional[date], Optional[date]]:
+        """Return start and end dates parsed from a periodo dict"""
+        if not periodo or not isinstance(periodo, dict):
+            return None, None
+
+        start = self._parse_date(periodo.get('desde'))
+        end = self._parse_date(periodo.get('hasta'))
+        return start, end
+
+    def _period_reference_date(self, periodo: Optional[Dict[str, Any]]) -> Optional[date]:
+        """Pick the most relevant date from periodo for comparisons (prefer end, fallback to start)"""
+        start, end = self._extract_period_dates(periodo)
+        return end or start
+
+    def _format_periodo(self, periodo: Optional[Dict[str, Any]]) -> str:
+        """Return a human-readable representation of periodo"""
+        if not periodo or not isinstance(periodo, dict):
+            return "periodo-desconocido"
+
+        start = periodo.get('desde')
+        end = periodo.get('hasta')
+
+        if start and end:
+            return f"{start} → {end}"
+        return start or end or "periodo-desconocido"
+
+    def _parse_spanish_name(self, raw_name: str) -> Tuple[str, str, Optional[str]]:
+        """
+        Split vida laboral name field into first name and surnames following ValerIA rules.
+
+        Rules provided by the user:
+        - If the name contains ` --- ` the employee has only one surname. Text to the left
+          becomes `last_name` and text to the right (any length) becomes `first_name`. `last_name2` is None.
+        - Otherwise the employee has two surnames. The first word is `last_name`, the second word is
+          `last_name2`, and everything after the second space belongs to `first_name`.
+        """
+        if not raw_name:
+            return "Unknown", "Unknown", None
+
+        nombre = raw_name.strip()
+        if not nombre:
+            return "Unknown", "Unknown", None
+
+        if " --- " in nombre:
+            last_name_part, first_name_part = nombre.split(" --- ", 1)
+            last_name = last_name_part.strip() or "Unknown"
+            first_name = first_name_part.strip() or "Unknown"
+            last_name2 = None
+        else:
+            parts = nombre.split()
+            if len(parts) >= 3:
+                last_name = parts[0].strip() or "Unknown"
+                last_name2 = parts[1].strip() or None
+                first_name = " ".join(parts[2:]).strip() or "Unknown"
+            elif len(parts) == 2:
+                # Graceful fallback: assume second token is the given name
+                last_name = parts[0].strip() or "Unknown"
+                last_name2 = None
+                first_name = parts[1].strip() or "Unknown"
+            else:
+                last_name = parts[0].strip() or "Unknown"
+                last_name2 = None
+                first_name = "Unknown"
+
+        return first_name, last_name, last_name2
+
     def _normalize_spanish_id(self, id_string: str) -> str:
         """
         Normalize Spanish DNI/NIE by fixing common OCR errors.
@@ -1513,13 +1725,13 @@ class ValeriaAgent:
         If company_id is not set in processing_state, searches across ALL companies.
         """
         client_id = self.processing_state.get('client_id')
-        name = emp_info.get('name', '').strip()
-        emp_id = emp_info.get('id', '').strip()
+        name = emp_info["trabajador"]["nombre"].strip()
+        emp_id = emp_info["trabajador"]["dni"].strip()
 
         # Try to match company from extracted payslip data
         if not client_id:
-            company_cif = emp_info.get('company_cif', '').strip()
-            company_name = emp_info.get('company_name', '').strip()
+            company_cif = emp_info["empresa"]["cif"].strip()
+            company_name = emp_info["empresa"]["razon_social"].strip()
 
             # Try matching by CIF first (most reliable)
             if company_cif:
@@ -1581,9 +1793,37 @@ class ValeriaAgent:
                     if variant not in id_variations:
                         id_variations.append(variant)
 
-            # Try each variation
+            # Log what we're trying
+            print(f"   🔄 Will try {len(id_variations)} ID variation(s): {', '.join(id_variations)}")
+            print(f"   🏢 Company context: {client_id if client_id else 'ALL COMPANIES'}")
+
+            # Extract payroll date for period-aware matching
+            periodo = emp_info.get('periodo') or {}
+            period_start, period_end = self._extract_period_dates(periodo)
+            pay_date = self._parse_date(emp_info.get('pay_date'))
+
+            payroll_date = self._period_reference_date(periodo) or pay_date
+            if not payroll_date:
+                # Backward compatibility: look for legacy fields
+                legacy_start = self._parse_date(emp_info.get('period_start'))
+                legacy_end = self._parse_date(emp_info.get('period_end'))
+                payroll_date = legacy_end or legacy_start
+
+            if not payroll_date:
+                year = emp_info.get('period_year')
+                month = emp_info.get('period_month')
+                if year and month:
+                    from datetime import date as dt_date
+                    payroll_date = dt_date(int(year), int(month), 1)
+
+            if payroll_date:
+                print(f"   📅 Payroll date for matching: {payroll_date}")
+
+            # Try each variation with date filtering
+            from sqlalchemy import or_
             employee = None
             for id_variant in id_variations:
+                print(f"   → Trying '{id_variant}'... ", end='', flush=True)
                 # Build query - search across all companies if client_id not set
                 query = self.session.query(Employee).filter_by(identity_card_number=id_variant)
 
@@ -1593,17 +1833,44 @@ class ValeriaAgent:
                 else:
                     pass  # Search all companies
 
+                # CRITICAL: Filter by employment period dates if payroll_date available
+                if payroll_date:
+                    query = query.filter(
+                        Employee.begin_date <= payroll_date,
+                        or_(
+                            Employee.end_date >= payroll_date,
+                            Employee.end_date == None  # Active employees
+                        )
+                    )
+
+                # Order by most recent period first (in case of overlaps)
+                query = query.order_by(Employee.begin_date.desc())
+
                 employee = query.first()
                 if employee:
+                    print(f"✅ MATCH! (Period: {employee.begin_date} to {employee.end_date or 'Active'})")
                     if id_variant != original_id:
-                        print(f"   ✅ Matched using variation: {original_id} → {id_variant}")
+                        print(f"   (Used variation: {original_id} → {id_variant})")
                     break
+                else:
+                    print(f"❌ No match")
 
-            # Print search context after trying all variations
-            if client_id and not employee:
-                print(f"   Limiting search to company: {client_id}")
-            elif not client_id:
-                print(f"   Searching across all companies (no company context)")
+            # If we still don't have a match and no payroll_date, try without date filtering
+            if not employee and not payroll_date:
+                print(f"   ⚠️  No payroll date available - retrying without date filtering...")
+                for id_variant in id_variations:
+                    print(f"   → Trying '{id_variant}' (no date filter)... ", end='', flush=True)
+                    query = self.session.query(Employee).filter_by(identity_card_number=id_variant)
+                    if client_id:
+                        query = query.filter_by(company_id=client_id)
+
+                    # Select most recent employment period
+                    employee = query.order_by(Employee.begin_date.desc()).first()
+                    if employee:
+                        print(f"✅ MATCH (most recent period)!")
+                        break
+                    else:
+                        print(f"❌ No match")
 
             if employee:
                 print(f"✅ Found employee: {employee.first_name} {employee.last_name} (ID: {employee.id}, Company: {employee.company_id})")
@@ -1615,12 +1882,41 @@ class ValeriaAgent:
 
                 return employee
             else:
-                print(f"❌ No employee found with ID: {emp_id}")
+                print(f"❌ No employee found with any ID variation")
 
-        # Try to match by name ONLY if we have company context
+                # Suggest similar IDs from database to help debug
+                # Extract core digits from ID (skip first char if letter, skip last char)
+                if len(emp_id) >= 5:
+                    if emp_id[0].isalpha():
+                        search_core = emp_id[1:6]  # NIE: skip X/Y/Z prefix
+                    else:
+                        search_core = emp_id[0:5]  # DNI: use first 5 digits
+
+                    similar_query = self.session.query(Employee.identity_card_number).filter(
+                        Employee.identity_card_number.like(f"%{search_core}%")
+                    )
+
+                    if client_id:
+                        similar_query = similar_query.filter_by(company_id=client_id)
+
+                    similar_ids = similar_query.limit(5).all()
+
+                    if similar_ids:
+                        print(f"   💡 Similar IDs in database (contains '{search_core}'):")
+                        for (similar_id,) in similar_ids:
+                            print(f"      - {similar_id}")
+                    else:
+                        print(f"   💡 No similar IDs found in database")
+
+                # ID was provided but didn't match - don't try name matching
+                # (ID is more reliable than name, if it doesn't match it's likely wrong employee)
+                print(f"❌ Could not match employee from payslip (name: '{name}', id: '{emp_id}')")
+                return None
+
+        # Try to match by name ONLY if NO ID was provided AND we have company context
         # (Name matching without company is too risky - could match wrong person)
-        if name and client_id:
-            print(f"🔍 Attempting name-based search: '{name}' in company {client_id}")
+        if name and client_id and not emp_id:
+            print(f"🔍 No ID provided - attempting name-based search: '{name}' in company {client_id}")
 
             # Search across first_name and last_name fields
             from sqlalchemy import or_, func
@@ -2204,22 +2500,21 @@ class ValeriaAgent:
     # CRUD Operations - Payrolls
     # ========================================
 
-    def create_payroll(self, employee_id: int, period_year: int, period_month: int,
-                      **kwargs) -> Dict[str, Any]:
+    def create_payroll(self, employee_id: int, periodo: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
-        Create a new payroll record
+        Create a new payroll record using the simplified schema.
 
         Args:
             employee_id: Employee ID
-            period_year: Payroll year
-            period_month: Payroll month (1-12)
-            **kwargs: Additional fields (bruto_total, neto_total, etc.)
+            periodo: Dict with keys like {"desde": "...", "hasta": "...", "dias": int}
+            **kwargs: Optional totals (devengo_total, deduccion_total, aportacion_empresa_total,
+                     liquido_a_percibir), warnings (list[str] or str), and optional line items
+                     (devengo_items, deduccion_items, aportacion_empresa_items).
 
         Returns:
             {"success": bool, "data": Payroll, "message": str}
         """
         try:
-            # Check if employee exists
             employee = self.session.query(Employee).filter_by(id=employee_id).first()
             if not employee:
                 return {
@@ -2228,51 +2523,94 @@ class ValeriaAgent:
                     "message": f"Employee with ID {employee_id} not found"
                 }
 
-            # Check if payroll already exists for this period
-            existing = self.session.query(Payroll).filter_by(
-                employee_id=employee_id,
-                period_year=period_year,
-                period_month=period_month
-            ).first()
-
-            if existing:
+            periodo = periodo or {}
+            if not isinstance(periodo, dict):
                 return {
                     "success": False,
-                    "error": "Payroll already exists for this period",
-                    "message": f"Payroll already exists for {period_year}-{period_month:02d}"
+                    "error": "Invalid periodo",
+                    "message": "Periodo must be an object with 'desde' and 'hasta' fields"
                 }
 
-            # Create payroll
-            period_start = kwargs.get('period_start', date(period_year, period_month, 1))
-            period_end = kwargs.get('period_end', date(period_year, period_month, 28))
+            # Normalize periodo payload (remove nulls but keep structure)
+            periodo_payload = {k: v for k, v in periodo.items() if v is not None}
+
+            # Prevent duplicate payrolls for same employee & periodo range
+            target_desde = periodo_payload.get('desde')
+            target_hasta = periodo_payload.get('hasta')
+            if target_desde or target_hasta:
+                existing_payrolls = self.session.query(Payroll).filter_by(employee_id=employee_id).all()
+                for existing in existing_payrolls:
+                    existing_periodo = existing.periodo or {}
+                    if existing_periodo.get('desde') == target_desde and existing_periodo.get('hasta') == target_hasta:
+                        period_str = self._format_periodo(periodo_payload)
+                        return {
+                            "success": False,
+                            "error": "Payroll already exists for this period",
+                            "message": f"Payroll already exists for {period_str}"
+                        }
+
+            warnings_arg = kwargs.get('warnings')
+            if isinstance(warnings_arg, list):
+                warnings_text = json.dumps(warnings_arg, ensure_ascii=False)
+            elif isinstance(warnings_arg, str):
+                warnings_text = warnings_arg
+            else:
+                warnings_text = None
 
             payroll = Payroll(
                 employee_id=employee_id,
-                period_start=period_start,
-                period_end=period_end,
-                pay_date=kwargs.get('pay_date', period_end),
-                period_year=period_year,
-                period_month=period_month,
-                period_quarter=((period_month - 1) // 3) + 1,
-                bruto_total=kwargs.get('bruto_total', 0.0),
-                neto_total=kwargs.get('neto_total', 0.0),
-                irpf_base_monetaria=kwargs.get('irpf_base_monetaria', 0.0),
-                irpf_retencion_monetaria=kwargs.get('irpf_retencion_monetaria', 0.0),
-                ss_trabajador_total=kwargs.get('ss_trabajador_total', 0.0),
-                extraction_confidence=kwargs.get('extraction_confidence', 1.0)
+                periodo=periodo_payload,
+                devengo_total=kwargs.get('devengo_total'),
+                deduccion_total=kwargs.get('deduccion_total'),
+                aportacion_empresa_total=kwargs.get('aportacion_empresa_total'),
+                liquido_a_percibir=kwargs.get('liquido_a_percibir'),
+                warnings=warnings_text
             )
 
             self.session.add(payroll)
+            self.session.flush()
+
+            line_collections = [
+                ("devengo", kwargs.get('devengo_items') or []),
+                ("deduccion", kwargs.get('deduccion_items') or []),
+                ("aportacion_empresa", kwargs.get('aportacion_empresa_items') or []),
+            ]
+
+            line_count = 0
+            for category, items in line_collections:
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    concepto = item.get('concepto')
+                    importe = item.get('importe')
+                    if concepto is None or importe is None:
+                        continue
+
+                    base_value = item.get('base')
+                    tipo_value = item.get('tipo')
+
+                    payroll_line = PayrollLine(
+                        payroll_id=payroll.id,
+                        category=category,
+                        concepto=concepto,
+                        importe=Decimal(str(importe)),
+                        base=Decimal(str(base_value)) if base_value is not None else None,
+                        tipo=Decimal(str(tipo_value)) if tipo_value is not None else None,
+                    )
+                    self.session.add(payroll_line)
+                    line_count += 1
+
             self.session.commit()
 
             full_name = f"{employee.first_name} {employee.last_name}"
             if employee.last_name2:
                 full_name += f" {employee.last_name2}"
 
+            period_label = self._format_periodo(periodo_payload)
             return {
                 "success": True,
                 "data": payroll,
-                "message": f"Successfully created payroll for '{full_name}' - {period_year}-{period_month:02d} (ID: {payroll.id})"
+                "message": f"Successfully created payroll for '{full_name}' - {period_label} (ID: {payroll.id}, {line_count} line(s))"
             }
 
         except IntegrityError as e:
@@ -2345,13 +2683,22 @@ class ValeriaAgent:
             # Track changes
             changes = {}
             updatable_fields = [
-                'period_start', 'period_end', 'pay_date', 'period_year', 'period_month',
-                'period_quarter', 'bruto_total', 'neto_total', 'irpf_base_monetaria',
-                'irpf_retencion_monetaria', 'ss_trabajador_total', 'extraction_confidence'
+                'periodo',
+                'devengo_total',
+                'deduccion_total',
+                'aportacion_empresa_total',
+                'liquido_a_percibir',
+                'warnings'
             ]
 
             for field, new_value in fields.items():
                 if field in updatable_fields and hasattr(payroll, field):
+                    if field == 'warnings':
+                        if isinstance(new_value, list):
+                            new_value = json.dumps(new_value, ensure_ascii=False)
+                    if field == 'periodo' and isinstance(new_value, dict):
+                        new_value = {k: v for k, v in new_value.items() if v is not None}
+
                     old_value = getattr(payroll, field)
                     if old_value != new_value:
                         changes[field] = {"old": old_value, "new": new_value}
@@ -2451,19 +2798,24 @@ class ValeriaAgent:
             if employee_id:
                 query = query.filter_by(employee_id=employee_id)
 
-            if year:
-                query = query.filter_by(period_year=year)
+            payrolls = query.order_by(Payroll.created_at.desc()).all()
 
-            if month:
-                query = query.filter_by(period_month=month)
-
-            payrolls = query.order_by(Payroll.period_year.desc(), Payroll.period_month.desc()).limit(limit).all()
+            filtered_payrolls = []
+            for payroll in payrolls:
+                ref_date = self._period_reference_date(payroll.periodo)
+                if year and (not ref_date or ref_date.year != year):
+                    continue
+                if month and (not ref_date or ref_date.month != month):
+                    continue
+                filtered_payrolls.append(payroll)
+                if limit and len(filtered_payrolls) >= limit:
+                    break
 
             return {
                 "success": True,
-                "data": payrolls,
-                "count": len(payrolls),
-                "message": f"Found {len(payrolls)} payroll(s)"
+                "data": filtered_payrolls,
+                "count": len(filtered_payrolls),
+                "message": f"Found {len(filtered_payrolls)} payroll(s)"
             }
 
         except Exception as e:
@@ -2551,12 +2903,14 @@ class ValeriaAgent:
                     "message": f"Employee with ID {employee_id} not found"
                 }
 
-            query = self.session.query(Payroll).filter_by(employee_id=employee_id)
+            query = self.session.query(Payroll).filter_by(employee_id=employee_id).order_by(Payroll.created_at.desc())
 
-            if year:
-                query = query.filter_by(period_year=year)
-
-            payrolls = query.order_by(Payroll.period_year.desc(), Payroll.period_month.desc()).all()
+            payrolls = []
+            for payroll in query.all():
+                ref_date = self._period_reference_date(payroll.periodo)
+                if year and (not ref_date or ref_date.year != year):
+                    continue
+                payrolls.append(payroll)
 
             full_name = f"{employee.first_name} {employee.last_name}"
             if employee.last_name2:
@@ -2746,13 +3100,15 @@ class ValeriaAgent:
         for payroll in payrolls:
             lines.append(f"  • Payroll #{payroll.id}")
             lines.append(f"    Employee ID: {payroll.employee_id}")
-            lines.append(f"    Period: {payroll.period_month}/{payroll.period_year}")
-            if payroll.bruto_total:
-                lines.append(f"    Gross: €{payroll.bruto_total:.2f}")
-            if payroll.neto_total:
-                lines.append(f"    Net: €{payroll.neto_total:.2f}")
-            if payroll.irpf_retencion_monetaria:
-                lines.append(f"    IRPF: €{payroll.irpf_retencion_monetaria:.2f}")
+            lines.append(f"    Period: {self._format_periodo(payroll.periodo)}")
+            if payroll.devengo_total is not None:
+                lines.append(f"    Devengo total: €{float(payroll.devengo_total):.2f}")
+            if payroll.deduccion_total is not None:
+                lines.append(f"    Deducción total: €{float(payroll.deduccion_total):.2f}")
+            if payroll.liquido_a_percibir is not None:
+                lines.append(f"    Líquido a percibir: €{float(payroll.liquido_a_percibir):.2f}")
+            if payroll.aportacion_empresa_total is not None:
+                lines.append(f"    Aportación empresa: €{float(payroll.aportacion_empresa_total):.2f}")
             lines.append("")  # Blank line between payrolls
         return "\n".join(lines)
 
@@ -2768,26 +3124,20 @@ class ValeriaAgent:
             for r in results:
                 if r.get('status') == 'processed':
                     emp_name = r.get('employee', 'Unknown')
-                    period = r.get('period', 'Unknown')
-                    gross = r.get('gross')
-                    net = r.get('net')
-                    concepts = r.get('concepts', 0)
-
-                    # Parse period (format: "YYYY-MM")
-                    period_display = period
-                    if period and '-' in period:
-                        try:
-                            from datetime import datetime
-                            y, m = period.split('-')
-                            dt = datetime(int(y), int(m), 1)
-                            period_display = dt.strftime('%B %Y')
-                        except:
-                            pass
+                    period_display = r.get('periodo', 'Unknown period')
+                    devengo_total = r.get('devengo_total')
+                    liquido = r.get('liquido_a_percibir')
+                    line_count = r.get('lines', 0)
 
                     lines.append(f"  • {emp_name} - {period_display}")
-                    if gross:
-                        lines.append(f"    Gross: €{gross:.2f}" + (f" | Net: €{net:.2f}" if net else ""))
-                    lines.append(f"    Concepts extracted: {concepts}")
+                    money_bits = []
+                    if devengo_total is not None:
+                        money_bits.append(f"Devengos: €{float(devengo_total):.2f}")
+                    if liquido is not None:
+                        money_bits.append(f"Líquido: €{float(liquido):.2f}")
+                    if money_bits:
+                        lines.append("    " + " | ".join(money_bits))
+                    lines.append(f"    Line items stored: {line_count}")
                     lines.append("")
 
         if failed_count > 0:
@@ -3068,19 +3418,9 @@ class ValeriaAgent:
         """Auto-process detected files based on workflow state"""
         results = []
 
-        # Process vida laboral CSV if detected and not yet processed
-        if detected_files['csv_files'] and not self.processing_state['vida_laboral_processed']:
-            csv_file = detected_files['csv_files'][0]  # Take first CSV file
-            results.append(f"🔍 Auto-detected vida laboral CSV: {csv_file}")
-            result = self.process_vida_laboral_csv(csv_file)
-            results.append(f"🔧 process_vida_laboral_csv: {result.get('message', 'Completed')}")
-
-            if result.get('success'):
-                next_step = self._get_next_workflow_step()
-                if next_step:
-                    results.append(f"\n➡️  {next_step}")
-
-            return "\n".join(results)
+        # CSV files are NOT auto-processed - they require client_name which must be
+        # intelligently extracted by the AI model from user context.
+        # Let OpenAI handle process_vida_laboral_csv calls with both required parameters.
 
         # Process nominas if detected and vida laboral is ready
         if self.processing_state['vida_laboral_processed']:
@@ -3344,7 +3684,7 @@ Nominas Processed: {self.processing_state['nominas_processed']}
 
             # Call OpenAI with function calling
             response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-4.1-mini-2025-04-14",
                 messages=messages,
                 tools=self.tools,
                 tool_choice="auto",

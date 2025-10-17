@@ -8,6 +8,7 @@
 /test_data
 /temp*
 /temp_uploads
+/vision_tests
 
 # Python cache
 __pycache__/

@@ -43,7 +43,7 @@ from .production_models import (
 
 # Main application modules
 from .valeria_agent import ValeriaAgent
-from .process_payroll import extract_payroll_info
+from .payslip_parser import process_payslip
 
 __all__ = [
     # Models
@@ -79,5 +79,5 @@ __all__ = [
 
     # Main application
     'ValeriaAgent',
-    'extract_payroll_info'
+    'process_payslip'
 ]

@@ -400,31 +400,73 @@ class PayslipGenerator:
         # Net salary
         neto_total = bruto_total - irpf_retencion - ss_trabajador
 
+        period_start = date(year, month, 1)
+        period_end = self.last_day_of_month(year, month)
+        dias_periodo = (period_end - period_start).days + 1
+
         # In-kind benefits (occasional)
         seguro_medico = 50 if random.random() < 0.3 else 0
         ticket_restaurant = 120 if random.random() < 0.6 else 0
+        concepts = {
+            '001': {'desc': 'Salario base', 'amount': base_salary},
+            '120': {'desc': 'Plus convenio', 'amount': plus_convenio} if plus_convenio > 0 else None,
+            '130': {'desc': 'Plus nocturnidad', 'amount': plus_nocturnidad} if plus_nocturnidad > 0 else None,
+            '301': {'desc': 'Horas extra', 'amount': horas_extra} if horas_extra > 0 else None,
+            '601': {'desc': 'Seguro médico', 'amount': seguro_medico} if seguro_medico > 0 else None,
+            '620': {'desc': 'Ticket restaurant', 'amount': ticket_restaurant} if ticket_restaurant > 0 else None,
+            '700': {'desc': 'IRPF', 'amount': -irpf_retencion},
+            '730': {'desc': 'SS Trabajador', 'amount': -ss_trabajador}
+        }
+
+        # Build new simplified schema payloads
+        devengo_items = []
+        deduccion_items = []
+        for entry in concepts.values():
+            if not entry:
+                continue
+            amount = entry['amount']
+            item = {
+                'concepto': entry['desc'],
+                'importe': round(abs(amount), 2)
+            }
+            if amount >= 0:
+                devengo_items.append(item)
+            else:
+                deduccion_items.append(item)
+
+        devengo_total = round(sum(item['importe'] for item in devengo_items), 2)
+        deduccion_total = round(sum(item['importe'] for item in deduccion_items), 2)
+
+        simplified_totales = {
+            'devengo_total': devengo_total,
+            'deduccion_total': deduccion_total,
+            'aportacion_empresa_total': 0.0,
+            'liquido_a_percibir': round(neto_total, 2)
+        }
 
         return {
             'employee': employee,
             'period_year': year,
             'period_month': month,
-            'period_start': date(year, month, 1),
-            'period_end': self.last_day_of_month(year, month),
+            'period_start': period_start,
+            'period_end': period_end,
             'bruto_total': round(bruto_total, 2),
             'neto_total': round(neto_total, 2),
             'irpf_base_monetaria': round(bruto_total, 2),
             'irpf_retencion_monetaria': round(irpf_retencion, 2),
             'ss_trabajador_total': round(ss_trabajador, 2),
-            'concepts': {
-                '001': {'desc': 'Salario base', 'amount': base_salary},
-                '120': {'desc': 'Plus convenio', 'amount': plus_convenio} if plus_convenio > 0 else None,
-                '130': {'desc': 'Plus nocturnidad', 'amount': plus_nocturnidad} if plus_nocturnidad > 0 else None,
-                '301': {'desc': 'Horas extra', 'amount': horas_extra} if horas_extra > 0 else None,
-                '601': {'desc': 'Seguro médico', 'amount': seguro_medico} if seguro_medico > 0 else None,
-                '620': {'desc': 'Ticket restaurant', 'amount': ticket_restaurant} if ticket_restaurant > 0 else None,
-                '700': {'desc': 'IRPF', 'amount': -irpf_retencion},
-                '730': {'desc': 'SS Trabajador', 'amount': -ss_trabajador}
-            }
+            'concepts': concepts,
+            # New simplified schema fields
+            'periodo': {
+                'desde': period_start.isoformat(),
+                'hasta': period_end.isoformat(),
+                'dias': dias_periodo
+            },
+            'devengo_items': devengo_items,
+            'deduccion_items': deduccion_items,
+            'aportacion_empresa_items': [],
+            'totales': simplified_totales,
+            'warnings': []
         }
 
     def last_day_of_month(self, year: int, month: int) -> date:

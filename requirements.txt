@@ -11,6 +11,8 @@ weasyprint>=60.0  # Preferred - pure Python, no external dependencies
 Flask>=3.0.0
 Flask-CORS>=4.0.0
 
-# Optional: For AI vision model integration
-# openai>=1.0.0
+# AI vision model integration
+openai>=1.0.0
+
+# Optional: Alternative AI provider
 # anthropic>=0.8.0

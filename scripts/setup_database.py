@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Import from core module
 from core.models import (
-    Base, Client, Employee, NominaConcept, Document,
+    Base, Client, Employee, VacationPeriod, NominaConcept, Document,
     Payroll, PayrollLine, ChecklistItem
 )
 from core.database import (
@@ -39,14 +39,18 @@ def create_indexes(engine):
     indexes = [
         Index('idx_employees_company_id', Employee.company_id),
         Index('idx_employees_identity_card', Employee.identity_card_number),
-        Index('idx_employees_active', Employee.active),
+        Index('idx_employees_status', Employee.employee_status),
+        Index('idx_employees_dates', Employee.begin_date, Employee.end_date),
+        Index('idx_vacation_periods_employee_id', VacationPeriod.employee_id),
+        Index('idx_vacation_periods_dates', VacationPeriod.start_date, VacationPeriod.end_date),
         Index('idx_documents_client_id', Document.client_id),
         Index('idx_documents_employee_id', Document.employee_id),
         Index('idx_documents_status', Document.status),
         Index('idx_payrolls_employee_id', Payroll.employee_id),
-        Index('idx_payrolls_period', Payroll.period_year, Payroll.period_month),
-        Index('idx_payrolls_validated', Payroll.validated_at),
+        Index('idx_payrolls_created_at', Payroll.created_at),
         Index('idx_payroll_lines_payroll_id', PayrollLine.payroll_id),
+        Index('idx_payroll_lines_category', PayrollLine.category),
+        Index('idx_payroll_lines_concepto', PayrollLine.concepto),
         Index('idx_checklist_items_client_id', ChecklistItem.client_id),
         Index('idx_checklist_items_status', ChecklistItem.status),
         Index('idx_checklist_items_due_date', ChecklistItem.due_date),
@@ -99,41 +103,59 @@ def create_basic_views(engine):
         # Payroll completeness for missing document detection
         """
         CREATE OR REPLACE VIEW payroll_completeness AS
+        WITH payroll_periods AS (
+            SELECT
+                p.id,
+                p.employee_id,
+                COALESCE((p.periodo->>'hasta')::date, (p.periodo->>'desde')::date) AS period_date
+            FROM payrolls p
+        )
         SELECT
             e.company_id,
             e.id as employee_id,
             CONCAT(e.first_name, ' ', e.last_name, COALESCE(' ' || e.last_name2, '')) as full_name,
-            years.period_year,
-            COUNT(p.id) as payrolls_received,
-            12 - COUNT(p.id) as payrolls_missing,
-            CASE WHEN COUNT(p.id) = 12 THEN true ELSE false END as complete_year
+            COALESCE(EXTRACT(YEAR FROM pp.period_date), EXTRACT(YEAR FROM CURRENT_DATE))::int as period_year,
+            COUNT(pp.id) as payrolls_received,
+            FALSE as complete_year
         FROM employees e
-        CROSS JOIN generate_series(2023, EXTRACT(YEAR FROM NOW())::int) as years(period_year)
-        LEFT JOIN payrolls p ON e.id = p.employee_id AND p.period_year = years.period_year
-        WHERE e.active = true
-        GROUP BY e.company_id, e.id, e.first_name, e.last_name, e.last_name2, years.period_year
-        ORDER BY e.company_id, full_name, years.period_year;
+        LEFT JOIN payroll_periods pp ON e.id = pp.employee_id
+        WHERE e.employee_status = 'Active'
+        GROUP BY e.company_id, e.id, e.first_name, e.last_name, e.last_name2, period_year
+        ORDER BY e.company_id, full_name, period_year;
         """,
 
         # Model 111 quarterly data
         """
         CREATE OR REPLACE VIEW model111_quarterly_data AS
+        WITH payroll_periods AS (
+            SELECT
+                p.id,
+                p.employee_id,
+                COALESCE((p.periodo->>'hasta')::date, (p.periodo->>'desde')::date) AS period_date,
+                p.devengo_total,
+                p.deduccion_total,
+                p.aportacion_empresa_total,
+                p.liquido_a_percibir
+            FROM payrolls p
+        )
         SELECT
             c.id as client_id,
             c.name as fiscal_name,
             c.cif,
-            p.period_year,
-            p.period_quarter,
+            EXTRACT(YEAR FROM pp.period_date)::int as period_year,
+            EXTRACT(QUARTER FROM pp.period_date)::int as period_quarter,
             COUNT(DISTINCT e.id) as employee_count,
-            COUNT(p.id) as payroll_count,
-            SUM(COALESCE(p.irpf_base_monetaria, 0) + COALESCE(p.irpf_base_especie, 0)) as base_irpf_total,
-            SUM(COALESCE(p.irpf_retencion_monetaria, 0) + COALESCE(p.irpf_retencion_especie, 0)) as retencion_irpf_total
+            COUNT(pp.id) as payroll_count,
+            SUM(COALESCE(pp.devengo_total, 0)) as devengo_total,
+            SUM(COALESCE(pp.deduccion_total, 0)) as deduccion_total,
+            SUM(COALESCE(pp.aportacion_empresa_total, 0)) as aportacion_empresa_total,
+            SUM(COALESCE(pp.liquido_a_percibir, 0)) as liquido_total
         FROM clients c
         JOIN employees e ON c.id = e.company_id
-        JOIN payrolls p ON e.id = p.employee_id
-        WHERE c.active = true AND e.active = true AND p.validated_at IS NOT NULL
-        GROUP BY c.id, c.name, c.cif, p.period_year, p.period_quarter
-        ORDER BY c.name, p.period_year, p.period_quarter;
+        JOIN payroll_periods pp ON e.id = pp.employee_id
+        WHERE c.active = true AND e.employee_status = 'Active' AND pp.period_date IS NOT NULL
+        GROUP BY c.id, c.name, c.cif, period_year, period_quarter
+        ORDER BY c.name, period_year, period_quarter;
         """
     ]
 

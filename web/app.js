@@ -249,7 +249,9 @@ function addMessage(role, content, scroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
-    const icon = role === 'user' ? '👤' : '🤖';
+    const icon = role === 'user'
+        ? '👤'
+        : '<img src="valeria.png" alt="ValerIA" class="logo-message">';
 
     messageDiv.innerHTML = `
         <div class="message-icon">${icon}</div>
@@ -271,7 +273,7 @@ function addLoadingMessage() {
     messageDiv.id = 'loading-' + Date.now();
 
     messageDiv.innerHTML = `
-        <div class="message-icon">🤖</div>
+        <div class="message-icon"><img src="valeria.png" alt="ValerIA" class="logo-message"></div>
         <div class="message-content">
             <div class="dot"></div>
             <div class="dot"></div>

@@ -9,11 +9,33 @@ for managing clients, employees, and payrolls.
 import os
 import sys
 from datetime import date
+from calendar import monthrange
 
 # Add parent directory to path to import core module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import ValeriaAgent
+
+
+def build_periodo(year: int, month: int) -> dict:
+    """Construct periodo dict with ISO-formatted dates and day count."""
+    last_day = monthrange(year, month)[1]
+    return {
+        "desde": f"{year}-{month:02d}-01",
+        "hasta": f"{year}-{month:02d}-{last_day:02d}",
+        "dias": last_day
+    }
+
+
+def format_periodo(periodo: dict) -> str:
+    """Human-friendly representation of periodo dict."""
+    if not periodo:
+        return "Unknown period"
+    start = periodo.get("desde")
+    end = periodo.get("hasta")
+    if start and end:
+        return f"{start} → {end}"
+    return start or end or "Unknown period"
 
 
 def example_client_operations(agent):
@@ -178,15 +200,15 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
 
     # CREATE PAYROLL
     print("\n1. Creating payroll for employee...")
+    periodo_jan = build_periodo(2025, 1)
     result = agent.create_payroll(
         employee_id=employee_id,
-        period_year=2025,
-        period_month=1,
-        bruto_total=2800.00,
-        neto_total=2150.00,
-        irpf_base_monetaria=2800.00,
-        irpf_retencion_monetaria=350.00,
-        ss_trabajador_total=300.00
+        periodo=periodo_jan,
+        devengo_total=2800.00,
+        deduccion_total=650.00,
+        aportacion_empresa_total=820.00,
+        liquido_a_percibir=2150.00,
+        warnings=["Demo payroll generated from CRUD example"]
     )
 
     if result['success']:
@@ -199,12 +221,16 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
     # CREATE MULTIPLE PAYROLLS
     print("\n2. Creating payrolls for multiple months...")
     for month in range(2, 5):  # Feb, March, April
+        devengo = 2800.00 + (month - 1) * 25
+        deduccion = 650.00 + (month - 1) * 5
+        liquido = devengo - deduccion
         result = agent.create_payroll(
             employee_id=employee_id,
-            period_year=2025,
-            period_month=month,
-            bruto_total=2800.00,
-            neto_total=2150.00
+            periodo=build_periodo(2025, month),
+            devengo_total=devengo,
+            deduccion_total=deduccion,
+            aportacion_empresa_total=830.00 + (month - 1) * 10,
+            liquido_a_percibir=liquido
         )
 
         if result['success']:
@@ -216,12 +242,16 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
     if employee_id_2:
         print("\n3. Creating payrolls for second employee...")
         for month in range(1, 4):
+            devengo = 3000.00 + (month - 1) * 40
+            deduccion = 700.00 + (month - 1) * 8
+            liquido = devengo - deduccion
             result = agent.create_payroll(
                 employee_id=employee_id_2,
-                period_year=2025,
-                period_month=month,
-                bruto_total=3000.00,
-                neto_total=2300.00
+                periodo=build_periodo(2025, month),
+                devengo_total=devengo,
+                deduccion_total=deduccion,
+                aportacion_empresa_total=920.00 + (month - 1) * 12,
+                liquido_a_percibir=liquido
             )
 
             if result['success']:
@@ -234,7 +264,9 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
     if result['success']:
         print(f"✓ {result['message']}")
         for payroll in result['data'][:10]:  # Show first 10
-            print(f"   - Employee {payroll.employee_id} | {payroll.period_year}-{payroll.period_month:02d} | €{payroll.bruto_total} gross")
+            periodo_label = format_periodo(payroll.periodo or {})
+            devengo = float(payroll.devengo_total or 0)
+            print(f"   - Employee {payroll.employee_id} | {periodo_label} | Devengos: €{devengo:.2f}")
     else:
         print(f"✗ {result['message']}")
 
@@ -245,7 +277,10 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
     if result['success']:
         print(f"✓ {result['message']}")
         for payroll in result['data']:
-            print(f"   - {payroll.period_year}-{payroll.period_month:02d} | Gross: €{payroll.bruto_total} | Net: €{payroll.neto_total}")
+            periodo_label = format_periodo(payroll.periodo or {})
+            devengo = float(payroll.devengo_total or 0)
+            liquido = float(payroll.liquido_a_percibir or 0)
+            print(f"   - {periodo_label} | Devengos: €{devengo:.2f} | Líquido: €{liquido:.2f}")
     else:
         print(f"✗ {result['message']}")
 
@@ -256,7 +291,7 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
     if result['success']:
         print(f"✓ {result['message']}")
         for payroll in result['data']:
-            print(f"   - {payroll.period_year}-{payroll.period_month:02d}")
+            print(f"   - {format_periodo(payroll.periodo or {})}")
     else:
         print(f"✗ {result['message']}")
 
@@ -265,8 +300,9 @@ def example_payroll_operations(agent, employee_id, employee_id_2):
         print("\n7. Updating payroll amounts...")
         result = agent.update_payroll(
             payroll_id=payroll_id,
-            bruto_total=2850.00,
-            neto_total=2180.00
+            devengo_total=2850.00,
+            deduccion_total=670.00,
+            liquido_a_percibir=2180.00
         )
 
         if result['success']:

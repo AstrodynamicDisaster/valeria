@@ -80,6 +80,7 @@ class Employee(Base):
     salary = Column(Numeric(10, 2))
     role = Column(Text)
     employee_status = Column(Text)  # 'Active', 'Terminated', etc.
+    tipo_contrato = Column(Text)  # Contract type code (e.g., '100', '200') from vida laboral TC field
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -89,6 +90,32 @@ class Employee(Base):
     payrolls = relationship("Payroll", back_populates="employee", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="employee", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="employee", cascade="all, delete-orphan")
+    vacation_periods = relationship("VacationPeriod", back_populates="employee", cascade="all, delete-orphan")
+
+
+class VacationPeriod(Base):
+    """
+    Vacation and unpaid leave periods for employees (VAC.RETRIB.NO from vida laboral).
+    Stores periods where employee was on vacation or unpaid leave within an employment period.
+    """
+    __tablename__ = 'vacation_periods'
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
+
+    # Date range for vacation
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date)  # Nullable for ongoing vacations
+
+    # Type and metadata
+    vacation_type = Column(Text, default='VAC.RETRIB.NO')  # VAC.RETRIB.NO, PERMISO, etc.
+    notes = Column(Text)  # Additional information from CSV
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    # Relationships
+    employee = relationship("Employee", back_populates="vacation_periods")
 
 
 class NominaConcept(Base):
@@ -104,9 +131,6 @@ class NominaConcept(Base):
     default_group = Column(Text)  # ordinaria, variable, especie, deduccion
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
-
-    # Relationships
-    payroll_lines = relationship("PayrollLine", back_populates="concept")
 
 
 class Document(Base):
@@ -145,37 +169,23 @@ class Document(Base):
 
 
 class Payroll(Base):
-    """Payroll data extracted from payslips"""
+    """Minimal payroll snapshot extracted from payslips"""
     __tablename__ = 'payrolls'
 
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
 
-    # Period info
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
-    pay_date = Column(Date)
-    period_year = Column(Integer, nullable=False)
-    period_month = Column(Integer, nullable=False)
-    period_quarter = Column(Integer, nullable=False)
+    # Period information stored as delivered by the extractor
+    periodo = Column(JSON, nullable=False)
 
-    # Core amounts for Models 111/190
-    bruto_total = Column(Numeric(10, 2))
-    neto_total = Column(Numeric(10, 2))
+    # Totals captured explicitly to avoid nested JSON
+    devengo_total = Column(Numeric(10, 2), nullable=True)
+    deduccion_total = Column(Numeric(10, 2), nullable=True)
+    aportacion_empresa_total = Column(Numeric(10, 2), nullable=True)
+    liquido_a_percibir = Column(Numeric(10, 2), nullable=True)
 
-    # IRPF data (critical for Models 111/190)
-    irpf_base_monetaria = Column(Numeric(10, 2))
-    irpf_base_especie = Column(Numeric(10, 2))
-    irpf_retencion_monetaria = Column(Numeric(10, 2))
-    irpf_retencion_especie = Column(Numeric(10, 2))
-
-    # Social Security (simplified)
-    ss_trabajador_total = Column(Numeric(10, 2))
-
-    # Validation
-    extraction_confidence = Column(Numeric(3, 2))
-    validated_at = Column(DateTime(timezone=True))
-    validated_by = Column(Text)
+    # Free-form warnings list serialized as text (JSON string or newline separated)
+    warnings = Column(Text)
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -188,31 +198,22 @@ class Payroll(Base):
 
 
 class PayrollLine(Base):
-    """Individual line items from payslips"""
+    """Simple payroll line item mirroring the extracted JSON arrays"""
     __tablename__ = 'payroll_lines'
 
     id = Column(Integer, primary_key=True)
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'), nullable=False)
-    concept_code = Column(Text, ForeignKey('nomina_concepts.concept_code'))
-    concept_desc = Column(Text, nullable=False)
-
-    # Simplified flags
-    is_devengo = Column(Boolean, default=True)
-    is_deduccion = Column(Boolean, default=False)
-    tributa_irpf = Column(Boolean, default=False)
-    en_especie = Column(Boolean, default=False)
-
-    # Amounts
-    units = Column(Numeric(10, 4))
-    importe_devengo = Column(Numeric(10, 2))
-    importe_deduccion = Column(Numeric(10, 2))
+    category = Column(String, nullable=False)  # devengo, deduccion, aportacion_empresa
+    concepto = Column(Text, nullable=False)
+    importe = Column(Numeric(10, 2), nullable=False)
+    base = Column(Numeric(10, 2))
+    tipo = Column(Numeric(6, 2))
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     payroll = relationship("Payroll", back_populates="payroll_lines")
-    concept = relationship("NominaConcept", back_populates="payroll_lines")
 
 
 class ChecklistItem(Base):

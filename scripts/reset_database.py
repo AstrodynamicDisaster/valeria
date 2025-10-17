@@ -131,6 +131,7 @@ def reset_database_force():
                 'documents',
                 'checklist_items',
                 'payrolls',
+                'vacation_periods',  # Must be dropped before employees
                 'employees',
                 'clients',
                 'nomina_concepts'
