@@ -64,6 +64,33 @@ def create_indexes(engine):
                 if 'already exists' not in str(e).lower():
                     print(f"Warning: Could not create index {index.name}: {e}")
 
+        # Create unique constraint for payrolls to prevent duplicates
+        # Only prevents duplicates with same employee, period, AND liquido_a_percibir
+        # This allows corrections/updates with different amounts
+        print("Creating unique constraint for payrolls...")
+        try:
+            # First, drop the old constraint if it exists
+            conn.execute(text("""
+                DROP INDEX IF EXISTS idx_unique_employee_period
+            """))
+            conn.commit()
+
+            # Create new constraint including liquido_a_percibir
+            conn.execute(text("""
+                CREATE UNIQUE INDEX idx_unique_employee_period_amount
+                ON payroll (employee_id, (periodo->>'desde'), (periodo->>'hasta'), liquido_a_percibir)
+                WHERE periodo IS NOT NULL
+                  AND periodo->>'desde' IS NOT NULL
+                  AND periodo->>'hasta' IS NOT NULL
+                  AND liquido_a_percibir IS NOT NULL
+            """))
+            conn.commit()
+            print("✓ Unique payroll constraint created successfully!")
+            print("   (Allows same period with different liquido_a_percibir)")
+        except Exception as e:
+            if 'already exists' not in str(e).lower():
+                print(f"Warning: Could not create unique payroll constraint: {e}")
+
     print("✓ Database indexes created successfully!")
 
 

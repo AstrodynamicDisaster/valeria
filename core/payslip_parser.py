@@ -44,6 +44,10 @@ modifying any items from the input JSON that are incorrectly extracted or missin
 If you need to perform any modifications, add another string inside the warnings array in the JSON
 explaining what you have done.
 
+IMPORTANT:
+- If you need to correct the DIAS field in the periodo object because it has 31 days and 30 have been parsed, leave
+it as is and do not add any warning.
+
 ## This is the input and output schema
 {
   "empresa": {
@@ -111,9 +115,60 @@ CONCEPTS_EMPRESA = [
 
 
 ### ------------------------------ ###
+###      TOTALS COMPUTATION        ###
+### ------------------------------ ###
+def recompute_totals(payroll_data: Dict) -> Dict:
+    """
+    Recompute the totales section of a payroll JSON based on line items.
+
+    Args:
+        payroll_data: The extracted payroll JSON with devengo_items,
+                     deduccion_items, and aportacion_empresa_items
+
+    Returns:
+        Updated payroll_data with recomputed totales
+    """
+    # Helper function to safely sum importes
+    def sum_importes(items):
+        total = 0.0
+        if not items:
+            return total
+        for item in items:
+            if isinstance(item, dict):
+                importe = item.get('importe')
+                if importe is not None:
+                    try:
+                        total += float(importe)
+                    except (ValueError, TypeError):
+                        pass
+        return round(total, 2)
+
+    # Get line items
+    devengo_items = payroll_data.get('devengo_items') or []
+    deduccion_items = payroll_data.get('deduccion_items') or []
+    aportacion_empresa_items = payroll_data.get('aportacion_empresa_items') or []
+
+    # Compute totals
+    devengo_total = sum_importes(devengo_items)
+    deduccion_total = sum_importes(deduccion_items)
+    aportacion_empresa_total = sum_importes(aportacion_empresa_items)
+    liquido_a_percibir = round(devengo_total - deduccion_total, 2)
+
+    # Update the totales section
+    payroll_data['totales'] = {
+        'devengo_total': devengo_total,
+        'deduccion_total': deduccion_total,
+        'aportacion_empresa_total': aportacion_empresa_total,
+        'liquido_a_percibir': liquido_a_percibir
+    }
+
+    return payroll_data
+
+
+### ------------------------------ ###
 ###     VISION MODEL PIPELINE      ###
 ### ------------------------------ ###
-def call_vision_model(image: str, input_json: str, model: str = "gpt-4.1-nano", max_tokens: int = 1200):
+def call_vision_model(image: str, input_json: str, model: str = "gpt-4.1-mini", max_tokens: int = 1200):
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Set OPENAI_API_KEY environment variable")
@@ -140,67 +195,88 @@ def call_vision_model(image: str, input_json: str, model: str = "gpt-4.1-nano", 
     )
     return resp.choices[0].message.content
 
-def process_payslip(pdf_path: str) -> List[Dict]:
-    """Convert PDF pages to images and process with vision model"""
-    try:
+def process_payslip(pdf_path: str):
+    """
+    Convert PDF pages to images and process with vision model.
 
+    Yields payroll data for each page immediately after extraction,
+    allowing for immediate processing and database commits.
+
+    Yields:
+        Dict: Payroll data for each page
+    """
+    doc = None
+    try:
         doc = pymupdf.open(pdf_path)
         if doc.page_count == 0:
             raise ValueError("PDF has no pages")
-        all_payrolls = []
+
         total_pages = len(doc)
 
         for page_num in range(total_pages):
+            try:
+                # Process page normally (not cached)
+                page = doc[page_num]
+                # Convert PDF page to image
+                mat = pymupdf.Matrix(2, 2)  # Zoom factor
+                pix = page.get_pixmap(matrix=mat)
+                img_data = pix.tobytes("png")
 
-            # Process page normally (not cached)
-            page = doc[page_num]
-            # Convert PDF page to image
-            mat = pymupdf.Matrix(2, 2)  # Zoom factor
-            pix = page.get_pixmap(matrix=mat)
-            img_data = pix.tobytes("png")
+                # Extract and process text with heuristic
+                text = json.dumps(extract_data(page))
+                print(f"📝 Extracted text from page {page_num + 1}/{total_pages}")
+                # Print the extracted text
+                print(json.dumps(extract_data(page), ensure_ascii=False, indent=2))
 
-            # Extract and process text with heuristic
-            text = json.dumps(extract_data(page))
+                # Encode image for OpenAI
+                base64_image = base64.b64encode(img_data).decode('utf-8')
 
-            # Encode image for OpenAI
-            base64_image = base64.b64encode(img_data).decode('utf-8')
+                # Progress logging
+                print(f"🔄 Processing page {page_num + 1}/{total_pages} with OpenAI Vision API...")
+                payroll = call_vision_model(base64_image, text)
+                print(f"✅ Page {page_num + 1}/{total_pages} processed - Found 1 employee")
 
-            # Progress logging
-            print(f"🔄 Processing page {page_num + 1}/{total_pages} with OpenAI Vision API...")
-            payroll = call_vision_model(base64_image, text)
-            print(f"✅ Page {page_num + 1}/{total_pages} processed - Found 1 employee")
+                # Log raw extraction results for debugging
+                print("   📊 Extracted data:")
+                # print output json pretty
+                payroll = json.loads(payroll)
+                print(json.dumps(payroll, ensure_ascii=False, indent=2))
 
-            # Log raw extraction results for debugging
-            print("   📊 Extracted data:")
-            # print output json pretty
-            payroll = json.loads(payroll)
-            print(json.dumps(payroll, ensure_ascii=False, indent=2))
+                # Recompute totals to ensure accuracy
+                payroll = recompute_totals(payroll)
 
-            name = payroll["trabajador"]["nombre"]
-            emp_id = payroll["trabajador"]["dni"]
-            company = payroll["empresa"]["razon_social"]
-            period = f"{payroll["periodo"]["desde"]}/{payroll["periodo"]["hasta"]}"
-            liquido = payroll["totales"]["liquido_a_percibir"]
+                name = payroll["trabajador"]["nombre"]
+                emp_id = payroll["trabajador"]["dni"]
+                company = payroll["empresa"]["razon_social"]
+                period = f"{payroll["periodo"]["desde"]}/{payroll["periodo"]["hasta"]}"
+                liquido = payroll["totales"]["liquido_a_percibir"]
 
-            # Color code based on data quality
-            if name and emp_id:
-                status = "✅"
-            elif name or emp_id:
-                status = "⚠️"
-            else:
-                status = "❌"
+                # Color code based on data quality
+                if name and emp_id:
+                    status = "✅"
+                elif name or emp_id:
+                    status = "⚠️"
+                else:
+                    status = "❌"
 
-            print(f"   {status} Employee: Name='{name}' ID='{emp_id}' Company='{company}' Period={period} Liquido={liquido}")
+                print(f"   {status} Employee: Name='{name}' ID='{emp_id}' Company='{company}' Period={period} Liquido={liquido}")
 
-            all_payrolls.append(payroll)
+                # Yield immediately after extraction - allows for immediate commit!
+                yield payroll
 
-        doc.close()
+            except Exception as page_error:
+                print(f"⚠️  Error processing page {page_num + 1}/{total_pages}: {page_error}")
+                # Continue to next page instead of failing entire PDF
+                continue
 
-        return all_payrolls
-        
     except Exception as e:
-        print(f"Error processing PDF: {e}")
-        return []
+        print(f"❌ Error processing PDF {pdf_path}: {e}")
+        # Generator will simply stop yielding
+
+    finally:
+        # Always close the document
+        if doc:
+            doc.close()
 
 
 ### ------------------------------ ###
