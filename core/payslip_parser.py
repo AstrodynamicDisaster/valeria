@@ -47,6 +47,8 @@ explaining what you have done.
 IMPORTANT:
 - If you need to correct the DIAS field in the periodo object because it has 31 days and 30 have been parsed, leave
 it as is and do not add any warning.
+- If you detect a concept in the devengo_items containing the word "EMBARGO", make sure it is always marked
+as a deduction and not as a devengo.
 
 ## This is the input and output schema
 {

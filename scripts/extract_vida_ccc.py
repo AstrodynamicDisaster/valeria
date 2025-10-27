@@ -23,6 +23,8 @@ def parse_vida_laboral(filepath):
             if re.match(r'^\s*\d{2}\s+\d{10}\s+\d+\s+', line):
                 tokens = line.split()
                 if len(tokens) >= 5:
+                    # Extract NAF (Social Security Number): provincia code + NAF number
+                    naf = tokens[0] + " " + tokens[1]
                     doc = tokens[3]
                     # Si el último token tiene exactamente 3 caracteres, se asume que no forma parte del nombre.
                     if len(tokens[-1]) == 3:
@@ -30,7 +32,7 @@ def parse_vida_laboral(filepath):
                     else:
                         name_tokens = tokens[4:]
                     nombre = " ".join(name_tokens)
-                    current_employee = {'documento': doc, 'nombre': nombre, 'movimientos': []}
+                    current_employee = {'documento': doc, 'nombre': nombre, 'naf': naf, 'movimientos': []}
                     employees.append(current_employee)
                 # No se procesan logs individuales.
 
@@ -76,6 +78,7 @@ def parse_vida_laboral(filepath):
     for emp in employees:
         for mov in emp['movimientos']:
             record = {
+                'naf': emp['naf'],
                 'documento': emp['documento'],
                 'nombre': emp['nombre'],
                 'situacion': mov['situacion'],
@@ -99,7 +102,7 @@ if __name__ == '__main__':
 
     # Generar archivo CSV
     output_csv = "output.csv"
-    fieldnames = ["documento", "nombre", "situacion", "f_real_alta", "f_efecto_alta", "f_real_sit", "codigo_contrato"]
+    fieldnames = ["naf", "documento", "nombre", "situacion", "f_real_alta", "f_efecto_alta", "f_real_sit", "codigo_contrato"]
     with open(output_csv, "w", newline='', encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()

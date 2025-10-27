@@ -1,0 +1,306 @@
+.
+├── README.md
+├── __pycache__
+│   └── main.cpython-312.pyc
+├── a3
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   └── config.cpython-312.pyc
+│   ├── config.py
+│   └── tools.py
+├── archive
+│   ├── Local LLM Models for Data Extraction_ Comprehensive Analysis.pdf
+│   ├── Local_LLMS_for_Payroll.md
+│   ├── RUNBOOK.md
+│   ├── StirlingPDF
+│   │   ├── customFiles
+│   │   │   ├── static
+│   │   │   └── templates
+│   │   ├── extraConfigs
+│   │   │   ├── custom_settings.yml
+│   │   │   ├── db
+│   │   │   │   └── backup
+│   │   │   │       └── backup_202508251009.sql
+│   │   │   ├── settings.yml
+│   │   │   └── stirling-pdf-DB-2.3.232.mv.db
+│   │   ├── logs
+│   │   │   ├── info.log
+│   │   │   └── invalid-auths.log
+│   │   ├── pipeline
+│   │   │   ├── defaultWebUIConfigs
+│   │   │   │   ├── OCR images.json
+│   │   │   │   ├── Prepare-pdfs-for-email.json
+│   │   │   │   └── split-rotate-auto-rename.json
+│   │   │   └── watchedFolders
+│   │   └── trainingData
+│   │       ├── chi_sim.traineddata
+│   │       ├── configs
+│   │       │   ├── alto
+│   │       │   ├── ambigs.train
+│   │       │   ├── api_config
+│   │       │   ├── bigram
+│   │       │   ├── box.train
+│   │       │   ├── box.train.stderr
+│   │       │   ├── digits
+│   │       │   ├── get.images
+│   │       │   ├── hocr
+│   │       │   ├── inter
+│   │       │   ├── kannada
+│   │       │   ├── linebox
+│   │       │   ├── logfile
+│   │       │   ├── lstm.train
+│   │       │   ├── lstmbox
+│   │       │   ├── lstmdebug
+│   │       │   ├── makebox
+│   │       │   ├── page
+│   │       │   ├── pdf
+│   │       │   ├── quiet
+│   │       │   ├── rebox
+│   │       │   ├── strokewidth
+│   │       │   ├── tsv
+│   │       │   ├── txt
+│   │       │   ├── unlv
+│   │       │   └── wordstrbox
+│   │       ├── deu.traineddata
+│   │       ├── eng.traineddata
+│   │       ├── fra.traineddata
+│   │       ├── pdf.ttf
+│   │       ├── por.traineddata
+│   │       └── tessconfigs
+│   │           ├── batch
+│   │           ├── batch.nochop
+│   │           ├── matdemo
+│   │           ├── msdemo
+│   │           ├── nobatch
+│   │           └── segdemo
+│   ├── ValerIA_Onboarding_Automation_Spec.md
+│   ├── accurate_payslips
+│   │   └── payslips
+│   │       ├── nomina_accurate_2025_02_empleado_1.html
+│   │       ├── nomina_accurate_2025_02_empleado_1.pdf
+│   │       ├── nomina_accurate_2025_02_empleado_2.html
+│   │       ├── nomina_accurate_2025_02_empleado_2.pdf
+│   │       ├── nomina_accurate_2025_02_empleado_3.html
+│   │       └── nomina_accurate_2025_02_empleado_3.pdf
+│   ├── danik_mini.pdf
+│   ├── database_extensions_future.py
+│   ├── database_setup.log
+│   ├── debug_images
+│   │   └── page_0.png
+│   ├── documents
+│   ├── extract_vida_ccc.py
+│   ├── generate_accurate_payslips.py
+│   ├── obtain_vl_employees_details.py
+│   ├── original_data
+│   │   ├── Nominas 2025
+│   │   │   ├── Abril
+│   │   │   │   ├── DOC PAGO EMBARGO CRISTIAN ZAMBRANO.pdf
+│   │   │   │   ├── FINQ GABRIEL MOYA 25-04-2025_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM CRISTIAN_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM DIEGO _LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM ELENA_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM GABRIEL MOYA 25-04-2025 rectificada_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM GABRIEL MOYA 25-04-2025_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM JEAN_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM JOSE NIETO _LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM LUIS BAETA_LisDPSobreBolsaA402-2.pdf
+│   │   │   │   ├── NOM LUIS CONTRERAS_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM MANUEL BRICEÑO_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM MARIANNE_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM MOISES_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM SERGIO_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM STEFANY_LisDPSobreBolsaA402.pdf
+│   │   │   │   └── NOM ZULMA_LisDPSobreBolsaA402.pdf
+│   │   │   ├── Enero 
+│   │   │   │   ├── NOM ENERO_LisDPSobreBolsaA402.pdf
+│   │   │   │   └── NOM M ELENA FERREIRA ENERO_LisDPSobreBolsaA402.pdf
+│   │   │   ├── Febrero
+│   │   │   │   └── NOM FEBRERO _LisDPSobreBolsaA402.pdf
+│   │   │   ├── Junio
+│   │   │   │   ├── 19 MANUEL BRICEÑO SANTANIELLO NOM.pdf
+│   │   │   │   ├── 6 LUIS GABRIEL BAETA NOM.pdf
+│   │   │   │   ├── 7 DIEGO CONTRERAS NOM.pdf
+│   │   │   │   ├── 9 LUIS ENRIQUE CONTRETAS NOM.pdf
+│   │   │   │   └── NOMINAS JUNIO RECT.pdf
+│   │   │   ├── Marzo
+│   │   │   │   ├── NOM 10_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 12_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 13_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 14_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 15_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 16 _LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 17 _LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 18 _LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 3_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 4_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 5_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 6_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 7_LisDPSobreBolsaA402.pdf
+│   │   │   │   ├── NOM 9_LisDPSobreBolsaA402.pdf
+│   │   │   │   └── NOMINAS MARZO 24.pdf
+│   │   │   └── Mayo
+│   │   │       ├── DOC PAGO EMBARGO CRISTIAN ZAMBRANO.pdf
+│   │   │       ├── NOM CRISTIAN_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM DIEGO CONTRERAS_LisDPSobreBolsaA402.pdf
+│   │   │       ├── NOM ELENA_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM JEAN CARLOS_LisDPSobreBolsaA402.pdf
+│   │   │       ├── NOM JOSE RAFAEL NIETO _LisDPSobreBolsaA402.pdf
+│   │   │       ├── NOM LUIS BAETA_LisDPSobreBolsaA402.pdf
+│   │   │       ├── NOM LUIS ENRIQUE CONTRERAS_LisDPSobreBolsaA402.pdf
+│   │   │       ├── NOM MANUEL BRICEÑO_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM MARIANNE_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM MOISES_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM SERGIO_LisDPSobreBolsaA402-2.pdf
+│   │   │       ├── NOM STEFANY_LisDPSobreBolsaA402-2.pdf
+│   │   │       └── NOM ZULMA_LisDPSobreBolsaA402-2.pdf
+│   │   ├── T_Dec.pdf
+│   │   ├── T_Dec.pdf.txt
+│   │   ├── VL_Madrid_Jarvis.msj
+│   │   ├── test_photo.jpeg
+│   │   ├── test_photo.jpg
+│   │   ├── vl_ccc.csv
+│   │   └── your_local_image.jpg
+│   ├── payroll_database_spec.md
+│   ├── payslip_example.pdf
+│   ├── pdf_extract.py
+│   ├── process_payroll_legacy.py
+│   ├── run_qwen2.5vl.py
+│   ├── setup_database.py
+│   └── testslip.pdf
+├── core
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── __main__.cpython-312.pyc
+│   │   ├── database.cpython-312.pyc
+│   │   ├── models.cpython-312.pyc
+│   │   ├── payslip_parser.cpython-312.pyc
+│   │   ├── process_payroll.cpython-312.pyc
+│   │   ├── production_models.cpython-312.pyc
+│   │   └── valeria_agent.cpython-312.pyc
+│   ├── agent
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │   ├── __init__.cpython-312.pyc
+│   │   │   ├── agent.cpython-312.pyc
+│   │   │   ├── config.cpython-312.pyc
+│   │   │   ├── payroll_lines.cpython-312.pyc
+│   │   │   ├── state.cpython-312.pyc
+│   │   │   ├── utils.cpython-312.pyc
+│   │   │   └── vida_laboral.cpython-312.pyc
+│   │   ├── agent.py
+│   │   ├── config.py
+│   │   ├── payroll_lines.py
+│   │   ├── state.py
+│   │   ├── utils.py
+│   │   └── vida_laboral.py
+│   ├── database.py
+│   ├── models.py
+│   ├── payslip_parser.py
+│   ├── production_models.py
+│   └── valeria_agent.py
+├── docker-compose.yml
+├── docs
+│   ├── 2025-09-17-based-on-the-database-and-tables-described-in-the.txt
+│   ├── CRUD_IMPLEMENTATION_SUMMARY.md
+│   ├── IMPORT_SYSTEM_FIX.md
+│   ├── MIGRATION_SUMMARY.md
+│   ├── REFACTORING_SUMMARY.md
+│   ├── VALERIA_AGENT_GUIDE.md
+│   ├── WEB_INTERFACE.md
+│   ├── WEB_INTERFACE_TECHNICAL_REPORT.md
+│   ├── agent_followup_plan.md
+│   ├── employee-movements-feature.md
+│   ├── instructions.md
+│   ├── spec.md
+│   └── valeria_agent_refactor.md
+├── documents
+├── examples
+│   ├── __pycache__
+│   │   └── crud_operations.cpython-312.pyc
+│   ├── crud_operations.py
+│   ├── example_missing_payslips.py
+│   ├── example_usage.md
+│   └── process_pdfs.py
+├── log_danik.txt
+├── log_danik_tail.txt
+├── main.py
+├── nginx.conf
+├── reports
+│   ├── missing_payslips_report_20250917_083202.json
+│   ├── missing_payslips_report_20250917_165140.json
+│   ├── missing_payslips_report_20251010_220413.json
+│   ├── missing_payslips_report_20251010_230943.json
+│   ├── missing_payslips_report_20251011_004757.json
+│   ├── missing_payslips_report_20251013_162729.json
+│   ├── missing_payslips_report_20251013_165708.json
+│   ├── processing_report_20250917_083202.json
+│   ├── processing_report_20250917_165140.json
+│   ├── processing_report_20251013_162728.json
+│   ├── processing_report_20251013_165707.json
+│   └── tmp_report.json
+├── requirements.txt
+├── scripts
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── generate_test_data.cpython-312.pyc
+│   │   └── setup_database.cpython-312.pyc
+│   ├── convert_payslips_to_pdf.py
+│   ├── deduplicate_payrolls.py
+│   ├── extract_vida_ccc.py
+│   ├── generate_test_data.py
+│   ├── obtain_vl_employees_details.py
+│   ├── reset_database.py
+│   └── setup_database.py
+├── temp_uploads
+│   ├── 20251012_234858_APIconsolidadaBoe.pdf
+│   └── 20251013_153855_danik.csv
+├── test_a3 copy.py
+├── test_a3.py
+├── test_data
+│   ├── 20.pdf
+│   ├── danik.csv
+│   ├── danik.msj
+│   ├── danik.pdf
+│   ├── danik_tail.pdf
+│   ├── payslips
+│   ├── reduced.pdf
+│   ├── result.json
+│   ├── rossitruck.csv
+│   └── temp.txt
+├── tests
+│   ├── test_agent.py
+│   ├── test_agent_reports.py
+│   ├── test_agent_utils.py
+│   ├── test_concept_mapping.py
+│   ├── test_dual_source.py
+│   ├── test_enhanced_extraction.py
+│   ├── test_extraction.py
+│   ├── test_json_parsing.py
+│   ├── test_missing_payslips.py
+│   ├── test_payroll_persistence.py
+│   └── test_progress_bar.py
+├── tree.txt
+├── vision_tests
+│   ├── last.json
+│   ├── nomina_parser.py
+│   ├── nomina_test.py
+│   ├── nomina_test_old.py
+│   ├── ocr_2.py
+│   ├── ocr_test.py
+│   ├── output.json
+│   ├── output.txt
+│   ├── output_ferrera.txt
+│   ├── payslip_parser.py
+│   ├── simple_vision.py
+│   ├── testslip.json
+│   └── testslip_structured.json
+├── web
+│   ├── app.js
+│   ├── index.html
+│   ├── style.css
+│   └── valeria.png
+└── web_app.py
+
+48 directories, 256 files

@@ -4,7 +4,6 @@ Vida laboral CSV processing utilities.
 
 from __future__ import annotations
 
-import uuid
 from typing import Dict
 
 from sqlalchemy.orm import Session
@@ -29,7 +28,7 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
         last_name2=last_name2,
         identity_card_number=documento,
         identity_doc_type=identity_doc_type,
-        ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",
+        ss_number=row.get('naf', '').strip() or None,
         begin_date=begin_date,
         end_date=None,
         salary=1500.00,
@@ -72,7 +71,7 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
         last_name2=last_name2,
         identity_card_number=documento,
         identity_doc_type=identity_doc_type,
-        ss_number=f"SS{uuid.uuid4().hex[:10].upper()}",
+        ss_number=row.get('naf', '').strip() or None,
         begin_date=begin_date,
         end_date=end_date,
         salary=1500.00,
