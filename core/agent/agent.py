@@ -38,7 +38,7 @@ from core.agent.utils import (
     period_reference_date,
 )
 from core.database import create_database_engine
-from core.models import Client, Employee, NominaConcept, Payroll, PayrollLine, VacationPeriod
+from core.models import Client, Employee, EmployeePeriod, NominaConcept, Payroll, PayrollLine
 from core.payslip_parser import process_payslip
 from core.production_models import (
     ProductionCompany,
@@ -616,9 +616,9 @@ class ValeriaAgent:
 
             if prod_employee:
                 # Convert production employee to local Employee structure
+                # Note: company_id, dates, salary, role are now in EmployeePeriod table
                 local_employee = Employee(
                     id=int(prod_employee.id),  # Convert from Numeric to int
-                    company_id=prod_employee.company_id,
                     first_name=prod_employee.first_name,
                     last_name=prod_employee.last_name,
                     last_name2=prod_employee.last_name2,
@@ -628,22 +628,17 @@ class ValeriaAgent:
                     birth_date=prod_employee.birth_date,
                     address=prod_employee.address,
                     phone=prod_employee.phone,
-                    mail=prod_employee.mail,
-                    begin_date=prod_employee.begin_date,
-                    end_date=prod_employee.end_date,
-                    salary=float(prod_employee.salary) if prod_employee.salary else None,
-                    role=prod_employee.role,
-                    employee_status=prod_employee.employee_status,
-                    active=(prod_employee.employee_status == 'Active')
+                    mail=prod_employee.mail
                 )
                 return local_employee
             return None
         else:
             # Query local database
             if identity_card_number and company_id:
-                return self.session.query(Employee).filter_by(
-                    identity_card_number=identity_card_number,
-                    company_id=company_id
+                # Need to join through employee_periods to filter by company
+                return self.session.query(Employee).join(EmployeePeriod).filter(
+                    Employee.identity_card_number == identity_card_number,
+                    EmployeePeriod.company_id == company_id
                 ).first()
             elif identity_card_number:
                 return self.session.query(Employee).filter_by(identity_card_number=identity_card_number).first()
@@ -680,7 +675,6 @@ class ValeriaAgent:
 
                 local_emp = Employee(
                     id=int(prod_emp.id),
-                    company_id=prod_emp.company_id,
                     first_name=prod_emp.first_name,
                     last_name=prod_emp.last_name,
                     last_name2=prod_emp.last_name2,
@@ -690,25 +684,21 @@ class ValeriaAgent:
                     birth_date=prod_emp.birth_date,
                     address=prod_emp.address,
                     phone=prod_emp.phone,
-                    mail=prod_emp.mail,
-                    begin_date=prod_emp.begin_date,
-                    end_date=prod_emp.end_date,
-                    salary=float(prod_emp.salary) if prod_emp.salary else None,
-                    role=prod_emp.role,
-                    employee_status=prod_emp.employee_status,
-                    active=(prod_emp.employee_status == 'Active')
+                    mail=prod_emp.mail
                 )
                 local_employees.append(local_emp)
             return local_employees
         else:
-            # Query local database
-            query = self.session.query(Employee).filter_by(company_id=company_id)
+            # Query local database - join through employee_periods
+            query = self.session.query(Employee).join(EmployeePeriod).filter(
+                EmployeePeriod.company_id == company_id
+            ).distinct()
 
             # Filter by cutoff_date if provided
             if cutoff_date:
-                # Only include employees who started on or before cutoff_date
+                # Only include employees who had a period starting on or before cutoff_date
                 query = query.filter(
-                    (Employee.begin_date <= cutoff_date) | (Employee.begin_date.is_(None))
+                    EmployeePeriod.period_begin_date <= cutoff_date
                 )
 
             return query.all()
@@ -830,9 +820,6 @@ class ValeriaAgent:
             # Pass cutoff_date to filter employees who started on or before cutoff
             employees = self._list_employees_for_company(client_id, cutoff_date=cutoff_date)
 
-            # Filter to only those with begin dates
-            employees = [emp for emp in employees if emp.begin_date is not None]
-
             if not employees:
                 return {
                     "success": False,
@@ -852,18 +839,31 @@ class ValeriaAgent:
                 if employee.last_name2:
                     full_name += f" {employee.last_name2}"
 
-                print(f"   📋 Checking {full_name} ({employee.identity_card_number})...")  # Updated
+                print(f"   📋 Checking {full_name} ({employee.identity_card_number})...")
 
-                # Determine employment period (updated field names)
-                start_date = employee.begin_date  # Updated from employment_start_date
-                end_date = employee.end_date or current_date  # Updated from employment_end_date
+                # Query employment periods for this employee (alta/baja only, not vacaciones)
+                periods = self.session.query(EmployeePeriod).filter(
+                    EmployeePeriod.employee_id == employee.id,
+                    EmployeePeriod.period_type.in_(['alta', 'baja'])
+                ).order_by(EmployeePeriod.period_begin_date).all()
 
-                # Cap end_date at cutoff_date if provided
-                if cutoff_date and end_date:
-                    end_date = min(end_date, cutoff_date)
+                if not periods:
+                    print(f"      ⚠️  No employment periods found, skipping...")
+                    continue
 
-                # Generate expected months
-                expected_months = self._generate_expected_months(start_date, end_date)
+                # Generate expected months across all employment periods
+                expected_months = set()
+                for period in periods:
+                    start_date = period.period_begin_date
+                    end_date = period.period_end_date or current_date
+
+                    # Cap end_date at cutoff_date if provided
+                    if cutoff_date:
+                        end_date = min(end_date, cutoff_date)
+
+                    # Generate months for this period
+                    period_months = self._generate_expected_months(start_date, end_date)
+                    expected_months.update(period_months)
 
                 # Get processed nomina months for this employee
                 processed_nominas = self.session.query(Payroll).filter_by(
@@ -883,12 +883,17 @@ class ValeriaAgent:
                         missing_months.append(f"{year}-{month:02d}")
 
                 if missing_months:
+                    # Get earliest and latest periods for display
+                    first_period = periods[0]
+                    last_period = periods[-1]
+
                     employee_missing = {
                         "employee_id": employee.id,
-                        "employee_name": full_name,  # Use constructed full_name
-                        "identity_card_number": employee.identity_card_number,  # Updated from documento
-                        "employment_start": start_date.strftime('%Y-%m-%d') if start_date else None,
-                        "employment_end": end_date.strftime('%Y-%m-%d') if employee.end_date else "Active",  # Updated
+                        "employee_name": full_name,
+                        "identity_card_number": employee.identity_card_number,
+                        "documento": employee.identity_card_number,  # Alias for report formatting
+                        "employment_start": first_period.period_begin_date.strftime('%Y-%m-%d') if first_period else None,
+                        "employment_end": last_period.period_end_date.strftime('%Y-%m-%d') if last_period and last_period.period_end_date else "Active",
                         "expected_months": len(expected_months),
                         "processed_months": len(processed_months),
                         "missing_months": missing_months,
@@ -1168,7 +1173,7 @@ class ValeriaAgent:
                     # Process payslip - now yields data immediately for each page
                     # This allows us to commit after each page extraction
                     extracted_count = 0
-                    for emp_info in process_payslip(pdf_file):
+                    for emp_info in process_payslip(pdf_file, session=self.session):
                         extracted_count += 1
                         try:
                             # Validate extracted data quality before attempting match
@@ -1563,8 +1568,12 @@ class ValeriaAgent:
         Match extracted employee info with database records.
 
         Priority:
-        1. Match by DNI/NIE (identity_card_number) - most reliable
-        2. Match by name (only if company_id is known) - fallback
+        1. Match by SSN (most reliable - stable across NIE→DNI transitions)
+        2. Match by DNI/NIE (fallback when SSN not available or no match)
+
+        SSN matching:
+        - 12-digit SSN: direct match
+        - 10-digit SSN: match last 10 digits of stored SSN
 
         If company_id is not set in processing_state, searches across ALL companies.
         """
@@ -1613,7 +1622,120 @@ class ValeriaAgent:
             if client_id:
                 print(f"🎯 Company context established: {client_id}")
 
-        # Try to match by DNI/NIE first (most reliable method)
+        # Extract SSN from trabajador data
+        emp_ssn = trabajador.get("ss_number", "").strip()
+
+        # PRIORITY 1: Try to match by SSN first (most reliable - doesn't change with NIE→DNI transitions)
+        if emp_ssn:
+            print(f"🔍 Searching for employee with SSN: {emp_ssn}")
+
+            # Extract payroll date for period-aware matching
+            periodo = emp_info.get('periodo') or {}
+            period_start, period_end = extract_period_dates(periodo)
+            pay_date = parse_date(emp_info.get('pay_date'))
+
+            payroll_date = period_reference_date(periodo) or pay_date
+            if not payroll_date:
+                # Backward compatibility: look for legacy fields
+                legacy_start = parse_date(emp_info.get('period_start'))
+                legacy_end = parse_date(emp_info.get('period_end'))
+                payroll_date = legacy_end or legacy_start
+
+            if not payroll_date:
+                year = emp_info.get('period_year')
+                month = emp_info.get('period_month')
+                if year and month:
+                    from datetime import date as dt_date
+                    payroll_date = dt_date(int(year), int(month), 1)
+
+            if payroll_date:
+                print(f"   📅 Payroll date for matching: {payroll_date}")
+
+            # Try 12-digit direct SSN match with period filtering
+            from sqlalchemy import or_
+            employee = None
+
+            print(f"   → Trying direct SSN match: {emp_ssn}... ", end='', flush=True)
+            query = self.session.query(Employee).filter_by(ss_number=emp_ssn)
+
+            # Apply company/period filtering if available
+            if payroll_date:
+                query = query.join(EmployeePeriod).filter(
+                    EmployeePeriod.period_begin_date <= payroll_date,
+                    or_(
+                        EmployeePeriod.period_end_date >= payroll_date,
+                        EmployeePeriod.period_end_date == None
+                    ),
+                    EmployeePeriod.period_type.in_(['alta', 'baja'])
+                )
+                if client_id:
+                    query = query.filter(EmployeePeriod.company_id == client_id)
+                query = query.order_by(EmployeePeriod.period_begin_date.desc())
+
+            employee = query.first()
+
+            # If no match, try 10-digit SSN match (last 10 digits)
+            if not employee and len(emp_ssn.replace(" ", "")) >= 10:
+                last_10 = emp_ssn.replace(" ", "")[-10:]
+                print(f"❌ No match")
+                print(f"   → Trying last 10 digits: {last_10}... ", end='', flush=True)
+
+                # Get all employees with SSN and check last 10 digits
+                query = self.session.query(Employee).filter(Employee.ss_number.isnot(None))
+
+                if payroll_date:
+                    query = query.join(EmployeePeriod).filter(
+                        EmployeePeriod.period_begin_date <= payroll_date,
+                        or_(
+                            EmployeePeriod.period_end_date >= payroll_date,
+                            EmployeePeriod.period_end_date == None
+                        ),
+                        EmployeePeriod.period_type.in_(['alta', 'baja'])
+                    )
+                    if client_id:
+                        query = query.filter(EmployeePeriod.company_id == client_id)
+                    query = query.order_by(EmployeePeriod.period_begin_date.desc())
+
+                # Check each candidate to see if last 10 digits match
+                for candidate in query.all():
+                    stored_ssn_digits = candidate.ss_number.replace(" ", "")
+                    if len(stored_ssn_digits) >= 10:
+                        candidate_last_10 = stored_ssn_digits[-10:]
+                        if candidate_last_10 == last_10:
+                            employee = candidate
+                            break
+
+            if employee:
+                # Get the matching period for display
+                if payroll_date:
+                    period = self.session.query(EmployeePeriod).filter(
+                        EmployeePeriod.employee_id == employee.id,
+                        EmployeePeriod.period_begin_date <= payroll_date,
+                        or_(
+                            EmployeePeriod.period_end_date >= payroll_date,
+                            EmployeePeriod.period_end_date == None
+                        )
+                    ).order_by(EmployeePeriod.period_begin_date.desc()).first()
+                    print(f"✅ MATCH by SSN! (Period: {period.period_begin_date} to {period.period_end_date or 'Active'})")
+                else:
+                    print(f"✅ MATCH by SSN! (No date filter)")
+
+                # Get company from employee's periods
+                from core.models import get_employee_company
+                emp_company_id = get_employee_company(employee.id, self.session)
+                print(f"✅ Found employee: {employee.first_name} {employee.last_name} (ID: {employee.id}, Company: {emp_company_id})")
+
+                # Auto-set client_id in processing state if not already set
+                if not client_id and emp_company_id:
+                    self.processing_state.client_id = emp_company_id
+                    print(f"   Auto-detected company: {emp_company_id}")
+
+                return employee
+            else:
+                print(f"❌ No match by SSN")
+                print(f"   ⚠️  Falling back to DNI/NIE matching...")
+
+        # PRIORITY 2: Try to match by DNI/NIE (fallback when SSN not available or no match)
         if emp_id:
             original_id = emp_id
             print(f"🔍 Searching for employee with ID: {emp_id}")
@@ -1681,50 +1803,63 @@ class ValeriaAgent:
 
                 # CRITICAL: Filter by employment period dates if payroll_date available
                 if payroll_date:
-                    query = query.filter(
-                        Employee.begin_date <= payroll_date,
+                    # Join with employee_periods to find periods active at payroll_date
+                    query = query.join(EmployeePeriod).filter(
+                        EmployeePeriod.period_begin_date <= payroll_date,
                         or_(
-                            Employee.end_date >= payroll_date,
-                            Employee.end_date == None  # Active employees
-                        )
+                            EmployeePeriod.period_end_date >= payroll_date,
+                            EmployeePeriod.period_end_date == None  # Active periods
+                        ),
+                        EmployeePeriod.period_type.in_(['alta', 'baja'])  # Only employment periods
                     )
 
-                # Order by most recent period first (in case of overlaps)
-                query = query.order_by(Employee.begin_date.desc())
-
-                employee = query.first()
-                if employee:
-                    print(f"✅ MATCH! (Period: {employee.begin_date} to {employee.end_date or 'Active'})")
-                    if id_variant != original_id:
-                        print(f"   (Used variation: {original_id} → {id_variant})")
-                    break
-                else:
-                    print(f"❌ No match")
-
-            # If we still don't have a match and no payroll_date, try without date filtering
-            if not employee and not payroll_date:
-                print(f"   ⚠️  No payroll date available - retrying without date filtering...")
-                for id_variant in id_variations:
-                    print(f"   → Trying '{id_variant}' (no date filter)... ", end='', flush=True)
-                    query = self.session.query(Employee).filter_by(identity_card_number=id_variant)
+                    # Filter by company if specified
                     if client_id:
-                        query = query.filter_by(company_id=client_id)
+                        query = query.filter(EmployeePeriod.company_id == client_id)
 
-                    # Select most recent employment period
-                    employee = query.order_by(Employee.begin_date.desc()).first()
+                    # Order by most recent period first (in case of overlaps)
+                    query = query.order_by(EmployeePeriod.period_begin_date.desc())
+
+                    employee = query.first()
                     if employee:
-                        print(f"✅ MATCH (most recent period)!")
+                        # Get the matching period for display
+                        period = self.session.query(EmployeePeriod).filter(
+                            EmployeePeriod.employee_id == employee.id,
+                            EmployeePeriod.period_begin_date <= payroll_date,
+                            or_(
+                                EmployeePeriod.period_end_date >= payroll_date,
+                                EmployeePeriod.period_end_date == None
+                            )
+                        ).order_by(EmployeePeriod.period_begin_date.desc()).first()
+
+                        print(f"✅ MATCH! (Period: {period.period_begin_date} to {period.period_end_date or 'Active'})")
+                        if id_variant != original_id:
+                            print(f"   (Used variation: {original_id} → {id_variant})")
+                        break
+                else:
+                    # No payroll_date - just match by identity without date filtering
+                    employee = query.first()
+                    if employee:
+                        print(f"✅ MATCH! (No date filter)")
+                        if id_variant != original_id:
+                            print(f"   (Used variation: {original_id} → {id_variant})")
                         break
                     else:
                         print(f"❌ No match")
 
+            # Fallback: If no match yet, this section is already handled above
+
             if employee:
-                print(f"✅ Found employee: {employee.first_name} {employee.last_name} (ID: {employee.id}, Company: {employee.company_id})")
+                # Get company from employee's periods
+                from core.models import get_employee_company
+                emp_company_id = get_employee_company(employee.id, self.session)
+
+                print(f"✅ Found employee: {employee.first_name} {employee.last_name} (ID: {employee.id}, Company: {emp_company_id})")
 
                 # Auto-set client_id in processing state if not already set
-                if not client_id:
-                    self.processing_state.client_id = employee.company_id
-                    print(f"   Auto-detected company: {employee.company_id}")
+                if not client_id and emp_company_id:
+                    self.processing_state.client_id = emp_company_id
+                    print(f"   Auto-detected company: {emp_company_id}")
 
                 return employee
             else:
@@ -1743,7 +1878,10 @@ class ValeriaAgent:
                     )
 
                     if client_id:
-                        similar_query = similar_query.filter_by(company_id=client_id)
+                        # Join with periods to filter by company
+                        similar_query = similar_query.join(EmployeePeriod).filter(
+                            EmployeePeriod.company_id == client_id
+                        ).distinct()
 
                     similar_ids = similar_query.limit(5).all()
 
@@ -1754,36 +1892,12 @@ class ValeriaAgent:
                     else:
                         print(f"   💡 No similar IDs found in database")
 
-                # ID was provided but didn't match - don't try name matching
-                # (ID is more reliable than name, if it doesn't match it's likely wrong employee)
+                # ID was provided but didn't match
                 print(f"❌ Could not match employee from payslip (name: '{name}', id: '{emp_id}')")
                 return None
 
-        # Try to match by name ONLY if NO ID was provided AND we have company context
-        # (Name matching without company is too risky - could match wrong person)
-        if name and client_id and not emp_id:
-            print(f"🔍 No ID provided - attempting name-based search: '{name}' in company {client_id}")
-
-            # Search across first_name and last_name fields
-            from sqlalchemy import or_, func
-            employee = self.session.query(Employee).filter(
-                Employee.company_id == client_id,
-                or_(
-                    Employee.first_name.ilike(f"%{name}%"),
-                    Employee.last_name.ilike(f"%{name}%"),
-                    func.concat(Employee.first_name, ' ', Employee.last_name).ilike(f"%{name}%")
-                )
-            ).first()
-
-            if employee:
-                print(f"✅ Found employee by name: {employee.first_name} {employee.last_name} (ID: {employee.id})")
-                return employee
-            else:
-                print(f"❌ No employee found by name matching")
-        elif name and not client_id:
-            print(f"⚠️  Skipping name-based search (no company context - too risky)")
-
-        print(f"❌ Could not match employee from payslip (name: '{name}', id: '{emp_id}')")
+        # If we reach here, no SSN or DNI/NIE was provided or matched
+        print(f"❌ Could not match employee from payslip - no valid SSN or DNI/NIE provided")
         return None
 
     def generate_processing_report(self, output_format: str = "json",
@@ -1799,9 +1913,13 @@ class ValeriaAgent:
             total_payrolls = self.session.query(Payroll).count()
 
             if client_id:
-                client_employees = self.session.query(Employee).filter_by(company_id=client_id).count()
-                client_payrolls = self.session.query(Payroll).join(Employee).filter(
-                    Employee.company_id == client_id
+                # Join through employee_periods to count employees for this company
+                client_employees = self.session.query(Employee).join(EmployeePeriod).filter(
+                    EmployeePeriod.company_id == client_id
+                ).distinct().count()
+
+                client_payrolls = self.session.query(Payroll).join(Employee).join(EmployeePeriod).filter(
+                    EmployeePeriod.company_id == client_id
                 ).count()
             else:
                 client_employees = 0
@@ -2123,9 +2241,8 @@ class ValeriaAgent:
                     "message": f"Company with ID {company_id} not found"
                 }
 
-            # Check if employee already exists for this company
+            # Check if employee already exists
             existing = self.session.query(Employee).filter_by(
-                company_id=company_id,
                 identity_card_number=identity_card_number
             ).first()
 
@@ -2133,12 +2250,11 @@ class ValeriaAgent:
                 return {
                     "success": False,
                     "error": "Employee already exists",
-                    "message": f"Employee with ID {identity_card_number} already exists for this company"
+                    "message": f"Employee with ID {identity_card_number} already exists"
                 }
 
-            # Create employee
+            # Create employee (only identity and contact info)
             employee = Employee(
-                company_id=company_id,
                 first_name=first_name,
                 last_name=last_name,
                 last_name2=kwargs.get('last_name2'),
@@ -2148,16 +2264,26 @@ class ValeriaAgent:
                 birth_date=kwargs.get('birth_date'),
                 address=kwargs.get('address', ''),
                 phone=kwargs.get('phone', ''),
-                mail=kwargs.get('mail', ''),
-                begin_date=kwargs.get('begin_date'),
-                end_date=kwargs.get('end_date'),
-                salary=kwargs.get('salary', 0.0),
-                role=kwargs.get('role', 'Empleado'),
-                employee_status=kwargs.get('employee_status', 'Active'),
-                active=kwargs.get('active', True)
+                mail=kwargs.get('mail', '')
             )
 
             self.session.add(employee)
+            self.session.flush()  # Get employee.id
+
+            # Optionally create initial employment period if period data provided
+            if kwargs.get('begin_date'):
+                period = EmployeePeriod(
+                    employee_id=employee.id,
+                    company_id=company_id,
+                    period_begin_date=kwargs.get('begin_date'),
+                    period_end_date=kwargs.get('end_date'),
+                    period_type='alta' if not kwargs.get('end_date') else 'baja',
+                    salary=kwargs.get('salary', 0.0),
+                    role=kwargs.get('role', 'Empleado'),
+                    notes='Created via create_employee'
+                )
+                self.session.add(period)
+
             self.session.commit()
 
             full_name = f"{first_name} {last_name}"
@@ -2206,11 +2332,12 @@ class ValeriaAgent:
                 }
 
             # Track changes
+            # Note: Period-related fields (begin_date, end_date, salary, role, employee_status)
+            # are now managed through EmployeePeriod records, not Employee fields
             changes = {}
             updatable_fields = [
                 'first_name', 'last_name', 'last_name2', 'identity_card_number',
-                'identity_doc_type', 'ss_number', 'birth_date', 'address', 'phone',
-                'mail', 'begin_date', 'end_date', 'salary', 'role', 'employee_status', 'active'
+                'identity_doc_type', 'ss_number', 'birth_date', 'address', 'phone', 'mail'
             ]
 
             for field, new_value in fields.items():
@@ -2925,15 +3052,26 @@ class ValeriaAgent:
                 full_name += f" {emp.last_name2}"
             lines.append(f"  • {full_name}")
             lines.append(f"    ID: {emp.id} | {emp.identity_card_number}")
-            if emp.salary:
-                lines.append(f"    Salary: €{emp.salary:.2f}/month")
-            if emp.employee_status:
-                status_emoji = "✅" if emp.employee_status == "Active" else "❌"
-                lines.append(f"    Status: {status_emoji} {emp.employee_status}")
-            if emp.begin_date:
-                lines.append(f"    Start: {emp.begin_date}")
-            if emp.end_date:
-                lines.append(f"    End: {emp.end_date}")
+
+            # Get status and periods from employee_periods table
+            from core.models import calculate_employee_status
+            status = calculate_employee_status(emp.id, self.session)
+            status_emoji = "✅" if status == "Active" else "❌"
+            lines.append(f"    Status: {status_emoji} {status}")
+
+            # Get most recent period for salary/dates display
+            latest_period = self.session.query(EmployeePeriod).filter(
+                EmployeePeriod.employee_id == emp.id,
+                EmployeePeriod.period_type.in_(['alta', 'baja'])
+            ).order_by(EmployeePeriod.period_begin_date.desc()).first()
+
+            if latest_period:
+                if latest_period.salary:
+                    lines.append(f"    Salary: €{latest_period.salary:.2f}/month")
+                lines.append(f"    Start: {latest_period.period_begin_date}")
+                if latest_period.period_end_date:
+                    lines.append(f"    End: {latest_period.period_end_date}")
+
             lines.append("")  # Blank line between employees
         return "\n".join(lines)
 

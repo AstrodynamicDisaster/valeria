@@ -45,6 +45,9 @@ class VidaLaboralContext:
     employees_created: int = 0
     employees_updated: int = 0
     vacation_periods_created: int = 0
+    create_employees: bool = True  # Set to False to only match existing employees
+    periods_created: int = 0  # Track EmployeePeriod records created
+    employees_not_found: int = 0  # Track skipped records when create_employees=False
 
 
 @dataclass

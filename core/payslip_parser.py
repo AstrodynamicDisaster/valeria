@@ -58,7 +58,8 @@ as a deduction and not as a devengo.
   },
   "trabajador": {
     "nombre": "string|null",
-    "dni": "string|null"
+    "dni": "string|null",
+    "ss_number": "string|null"
   },
   "periodo": {
     "desde": "YYYY-MM-DD|string|null",
@@ -98,6 +99,8 @@ MONEY2 = re.compile(r"^\d{1,3}(?:\.\d{3})*,\d{2}$")
 MONEY_ANY = re.compile(r"^\d{1,3}(?:\.\d{3})*,\d{2,4}$")
 DNI = re.compile(r"\b(?:[XYZxyz]\d{7}[A-Za-z]|\d{8}[A-Za-z])\b")
 CIF = re.compile(r"\b[ABCDEFGHJNPQRSUVW]\d{8}[A-Z]?\b")
+SSN_12 = re.compile(r"\b\d{12}\b")
+SSN_10 = re.compile(r"\b\d{10}\b")
 
 TIPO_RANGES = {
     "CONTINGENCIAS COMUNES": (15.0, 30.0),   # typically ~23.6-24.27
@@ -114,6 +117,46 @@ CONCEPTS_EMPRESA = [
     "FORMACIÓN PROFESIONAL",
     "FONDO GARANTÍA SALARIAL",
 ]
+
+
+### ------------------------------ ###
+###      SSN IDENTIFICATION        ###
+### ------------------------------ ###
+def identify_employee_ssn(all_text: str, session=None) -> Optional[str]:
+    """
+    Extract employee SSN from payslip text by digit count.
+
+    Strategy:
+    - Company CCC: 9 or 11 digits (ignore these)
+    - Employee SSN: 10 or 12 digits (extract these)
+
+    Returns first 10 or 12-digit pattern found, normalized to "XX XXXXXXXXXX" format.
+    Actual employee matching/validation happens later in agent.
+
+    Args:
+        all_text: Full text extracted from payslip
+        session: Not used (kept for backward compatibility)
+
+    Returns:
+        Normalized SSN in "XX XXXXXXXXXX" format, or None if not found
+    """
+    # Extract all candidate SSN patterns
+    candidates_12 = SSN_12.findall(all_text)
+    candidates_10 = SSN_10.findall(all_text)
+
+    # Try 12-digit patterns first (most reliable)
+    if candidates_12:
+        ssn_12 = candidates_12[0]  # Take first match
+        # Normalize: "123456789012" → "12 3456789012"
+        return f"{ssn_12[:2]} {ssn_12[2:]}"
+
+    # Try 10-digit patterns
+    if candidates_10:
+        ssn_10 = candidates_10[0]  # Take first match
+        # Return as-is (will be matched against last 10 digits in agent)
+        return ssn_10
+
+    return None
 
 
 ### ------------------------------ ###
@@ -197,12 +240,16 @@ def call_vision_model(image: str, input_json: str, model: str = "gpt-4.1-mini", 
     )
     return resp.choices[0].message.content
 
-def process_payslip(pdf_path: str):
+def process_payslip(pdf_path: str, session=None):
     """
     Convert PDF pages to images and process with vision model.
 
     Yields payroll data for each page immediately after extraction,
     allowing for immediate processing and database commits.
+
+    Args:
+        pdf_path: Path to PDF file
+        session: SQLAlchemy session for SSN validation (optional)
 
     Yields:
         Dict: Payroll data for each page
@@ -225,10 +272,10 @@ def process_payslip(pdf_path: str):
                 img_data = pix.tobytes("png")
 
                 # Extract and process text with heuristic
-                text = json.dumps(extract_data(page))
+                text = json.dumps(extract_data(page, session=session))
                 print(f"📝 Extracted text from page {page_num + 1}/{total_pages}")
                 # Print the extracted text
-                print(json.dumps(extract_data(page), ensure_ascii=False, indent=2))
+                print(json.dumps(extract_data(page, session=session), ensure_ascii=False, indent=2))
 
                 # Encode image for OpenAI
                 base64_image = base64.b64encode(img_data).decode('utf-8')
@@ -315,9 +362,9 @@ APORTE_MATCH_EPS = 0.02  # prefer printed importe if within 2 cents
 # -----------------------------
 # Empresa / Trabajador / Periodo
 # -----------------------------
-def parse_empresa_trabajador(lines: List[str]) -> Tuple[Dict, Dict]:
+def parse_empresa_trabajador(lines: List[str], all_text: str = "", session=None) -> Tuple[Dict, Dict]:
     empresa = {"razon_social": None, "cif": None}
-    trabajador = {"nombre": None, "dni": None}
+    trabajador = {"nombre": None, "dni": None, "ss_number": None}
 
     # CIF anywhere near the header
     for ln in lines[:100]:
@@ -347,6 +394,10 @@ def parse_empresa_trabajador(lines: List[str]) -> Tuple[Dict, Dict]:
                 best = ln
     if best:
         trabajador["nombre"] = best
+
+    # Extract SSN using database validation
+    if all_text and session:
+        trabajador["ss_number"] = identify_employee_ssn(all_text, session)
 
     return empresa, trabajador
 
@@ -718,9 +769,9 @@ def compute_totales(dev: List[Dict], ded: List[Dict], ap: List[Dict]) -> Dict:
         "liquido_a_percibir": round(tot_dev - tot_ded, 2),
     }
 
-def parse_text_to_json(text: str) -> Dict:
+def parse_text_to_json(text: str, session=None) -> Dict:
     lines = read_lines_from_text(text)
-    empresa, trabajador = parse_empresa_trabajador(lines)
+    empresa, trabajador = parse_empresa_trabajador(lines, all_text=text, session=session)
     periodo = parse_periodo(lines)
     dev, ded, w1 = parse_devengos_y_deducciones(lines)
     ap, w2 = parse_aportacion_empresa(lines)
@@ -740,9 +791,9 @@ def parse_text_to_json(text: str) -> Dict:
 # -----------------------------
 #  Extractor function
 # -----------------------------
-def extract_data(pdf_page: pymupdf.Page) -> Dict:
-    
-    result = parse_text_to_json(pdf_page.get_text())
+def extract_data(pdf_page: pymupdf.Page, session=None) -> Dict:
+
+    result = parse_text_to_json(pdf_page.get_text(), session=session)
     return result
 
 

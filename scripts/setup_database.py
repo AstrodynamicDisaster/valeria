@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Import from core module
 from core.models import (
-    Base, Client, Employee, VacationPeriod, NominaConcept, Document,
+    Base, Client, Employee, EmployeePeriod, NominaConcept, Document,
     Payroll, PayrollLine, ChecklistItem
 )
 from core.database import (
@@ -37,12 +37,11 @@ def create_indexes(engine):
     print("Creating database indexes...")
 
     indexes = [
-        Index('idx_employees_company_id', Employee.company_id),
         Index('idx_employees_identity_card', Employee.identity_card_number),
-        Index('idx_employees_status', Employee.employee_status),
-        Index('idx_employees_dates', Employee.begin_date, Employee.end_date),
-        Index('idx_vacation_periods_employee_id', VacationPeriod.employee_id),
-        Index('idx_vacation_periods_dates', VacationPeriod.start_date, VacationPeriod.end_date),
+        Index('idx_employee_periods_employee_id', EmployeePeriod.employee_id),
+        Index('idx_employee_periods_company_id', EmployeePeriod.company_id),
+        Index('idx_employee_periods_dates', EmployeePeriod.period_begin_date, EmployeePeriod.period_end_date),
+        Index('idx_employee_periods_type', EmployeePeriod.period_type),
         Index('idx_documents_client_id', Document.client_id),
         Index('idx_documents_employee_id', Document.employee_id),
         Index('idx_documents_status', Document.status),
@@ -136,19 +135,28 @@ def create_basic_views(engine):
                 p.employee_id,
                 COALESCE((p.periodo->>'hasta')::date, (p.periodo->>'desde')::date) AS period_date
             FROM payrolls p
+        ),
+        active_employees AS (
+            SELECT DISTINCT ON (ep.employee_id)
+                ep.employee_id,
+                ep.company_id
+            FROM employee_periods ep
+            WHERE ep.period_type = 'alta'
+              AND ep.period_end_date IS NULL
+            ORDER BY ep.employee_id, ep.period_begin_date DESC
         )
         SELECT
-            e.company_id,
+            ae.company_id,
             e.id as employee_id,
             CONCAT(e.first_name, ' ', e.last_name, COALESCE(' ' || e.last_name2, '')) as full_name,
             COALESCE(EXTRACT(YEAR FROM pp.period_date), EXTRACT(YEAR FROM CURRENT_DATE))::int as period_year,
             COUNT(pp.id) as payrolls_received,
             FALSE as complete_year
         FROM employees e
+        JOIN active_employees ae ON e.id = ae.employee_id
         LEFT JOIN payroll_periods pp ON e.id = pp.employee_id
-        WHERE e.employee_status = 'Active'
-        GROUP BY e.company_id, e.id, e.first_name, e.last_name, e.last_name2, period_year
-        ORDER BY e.company_id, full_name, period_year;
+        GROUP BY ae.company_id, e.id, e.first_name, e.last_name, e.last_name2, period_year
+        ORDER BY ae.company_id, full_name, period_year;
         """,
 
         # Model 111 quarterly data
@@ -164,6 +172,15 @@ def create_basic_views(engine):
                 p.aportacion_empresa_total,
                 p.liquido_a_percibir
             FROM payrolls p
+        ),
+        active_employees AS (
+            SELECT DISTINCT ON (ep.employee_id)
+                ep.employee_id,
+                ep.company_id
+            FROM employee_periods ep
+            WHERE ep.period_type = 'alta'
+              AND ep.period_end_date IS NULL
+            ORDER BY ep.employee_id, ep.period_begin_date DESC
         )
         SELECT
             c.id as client_id,
@@ -178,9 +195,10 @@ def create_basic_views(engine):
             SUM(COALESCE(pp.aportacion_empresa_total, 0)) as aportacion_empresa_total,
             SUM(COALESCE(pp.liquido_a_percibir, 0)) as liquido_total
         FROM clients c
-        JOIN employees e ON c.id = e.company_id
+        JOIN active_employees ae ON c.id = ae.company_id
+        JOIN employees e ON e.id = ae.employee_id
         JOIN payroll_periods pp ON e.id = pp.employee_id
-        WHERE c.active = true AND e.employee_status = 'Active' AND pp.period_date IS NOT NULL
+        WHERE c.active = true AND pp.period_date IS NOT NULL
         GROUP BY c.id, c.name, c.cif, period_year, period_quarter
         ORDER BY c.name, period_year, period_quarter;
         """
