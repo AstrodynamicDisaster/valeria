@@ -179,6 +179,10 @@ def reset_documents_folder():
 
     docs_dir = "./documents"
 
+    if os.getenv("DISABLE_LOCAL_DOCUMENTS", "false").lower() == "true":
+        print("⚠️  Skipping documents folder reset (DISABLE_LOCAL_DOCUMENTS=true)")
+        return
+
     if os.path.exists(docs_dir):
         try:
             shutil.rmtree(docs_dir)

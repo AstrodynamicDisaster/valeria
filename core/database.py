@@ -9,6 +9,9 @@ import os
 from typing import Optional
 from sqlalchemy import create_engine
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 def create_database_engine(database_url: str = None, echo: bool = True):
     """Create database engine from environment or default values"""
@@ -23,11 +26,32 @@ def create_database_engine(database_url: str = None, echo: bool = True):
     engine = create_engine(database_url, echo=echo)
     return engine
 
+def create_prod_engine(database_url: str = None, echo: bool = True):
+    """Create database engine from environment or default values"""
+    database_url = os.getenv('PROD_URL', '')
+    print(f"Connecting to production database at: {database_url}")
+    engine = create_engine(url=database_url, echo=echo)
+    return engine
+
 
 # Document Storage Utilities
 
+def _documents_disabled() -> bool:
+    """Flag to disable local documents folder creation."""
+    return os.getenv("DISABLE_LOCAL_DOCUMENTS", "false").lower() == "true"
+
+
 def ensure_documents_directory():
-    """Create documents directory structure if it doesn't exist"""
+    """Create documents directory structure if it doesn't exist.
+
+    Can be disabled by setting DISABLE_LOCAL_DOCUMENTS=true to avoid creating
+    the ./documents folder in environments that never store local files.
+    """
+    if _documents_disabled():
+        raise RuntimeError(
+            "Local documents storage disabled (set DISABLE_LOCAL_DOCUMENTS=false to re-enable)"
+        )
+
     base_dir = "./documents"
     os.makedirs(base_dir, exist_ok=True)
     return base_dir

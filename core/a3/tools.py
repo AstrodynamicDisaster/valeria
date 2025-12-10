@@ -6,9 +6,13 @@ import config as Config
 from datetime import datetime
 # Import Payroll models from core/models but imagining we are inside the a3 folder
 
-
-# SEARCH PARAMS
-PAGESIZE = 25
+# PAGINATION_DATA
+DEFAULT_PAGESIZE = 25
+PAGINATION_HEADER = "X-Pagination"
+TOTAL_PAGES = "totalPages"
+TOTAL_COUNT = "totalCount"
+PAGE_NUMBER = "pageNumber"
+PAGE_SIZE = "pageSize"
 
 # THIS IS THE FORMAT FOR DATES '2025-09-30T00:00:00Z'
 
@@ -19,13 +23,19 @@ EMPLOYEES_ENDPOINT = "employees"
 SALARY_ENDPOINT = "pactedsalary"
 PAYROLLS_ENDPOINT = "pays"
 PAYROLL_DATA_ENDPOINT = "paydata"
+PAYROLL_CONCEPTS_ENDPOINT = "concepts"
+PAYROLL_INTERNAL_CONCEPTS_ENDPOINT = "calculatedinternalconcepts"
 
 # ENDPOINT KEYS
 COMPANY_CODE = "companyCode"
 NIF = "identifierNumber"
+EMPLOYEE_A3_CODE = "employeeCode"
+START_DATE = "periodStartDate"
+END_DATE = "periodEndDate"
 
 
-def get_bearer_token() -> str:
+
+def get_bearer_token() -> str | None:
     """
     Retrieves the Bearer token using the refresh token.
     """
@@ -47,7 +57,7 @@ def get_bearer_token() -> str:
     return None
 
 
-def get_headers() -> dict:
+def get_headers() -> dict | None:
     try:
         token = get_bearer_token()
     except Exception as e:
@@ -68,28 +78,28 @@ def get_headers() -> dict:
     return headers
 
 
-def get_company_id(cif: str) -> str:
+def get_company_id(cif: str) -> str | None:
 
     headers = get_headers()
 
     try:
         companies_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}"
         data = {
-            "pageNumber": 1,
-            "pageSize": PAGESIZE,
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE,
             "filter": f"contains({NIF},'{cif}')" 
         }
         response = requests.get(companies_url, headers=headers, params=data)
         if response.status_code != 200:
             logging.error(f"Error fetching companies: {response.status_code} - {response.text}")
             return
-        return response.json()[0]["companyCode"]
+        return response.json()[0][COMPANY_CODE]
 
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
 
 
-def get_company_employees(company_id: int, period_start: Optional[str] = None, period_end: Optional[str] = None) -> list:
+def get_company_employees(company_id: int, period_start: Optional[str] = None, period_end: Optional[str] = None) -> list | None:
 
     headers = get_headers()
 
@@ -97,21 +107,21 @@ def get_company_employees(company_id: int, period_start: Optional[str] = None, p
     try:
         employees_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{EMPLOYEES_ENDPOINT}"
         data = {
-            "pageNumber": 1,
-            "pageSize": PAGESIZE 
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE 
         }
         response = requests.get(employees_url, headers=headers, params=data)
 
         employee_list.append(response.json())
 
         # Get remaining pages from header
-        metadata = json.loads(response.headers["X-Pagination"])
-        total_pages = metadata["totalPages"]
-        total_count = metadata["totalCount"]
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
 
         if total_pages > 1:
             for page in range(2, total_pages + 1):
-                data["pageNumber"] = page
+                data[PAGE_NUMBER] = page
                 response = requests.get(employees_url, headers=headers, params=data)
                 employee_list.append(response.json())
 
@@ -129,16 +139,16 @@ def get_company_employees(company_id: int, period_start: Optional[str] = None, p
         logging.error(f"Unexpected error: {e}")
 
 
-def get_employee_by_dni(company_id: int, dni: str) -> str:
+def get_employee_by_dni(company_id: str, dni: str) -> str | None:
 
     headers = get_headers()
 
     try:
         employees_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{EMPLOYEES_ENDPOINT}"
         data = {
-            "pageNumber": 1,
-            "pageSize": PAGESIZE,
-            "filter": f"{NIF} eq '{dni}'"
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE,
+            "filter": f"contains({NIF},'{dni}')"
         }
         response = requests.get(employees_url, headers=headers, params=data)
 
@@ -151,7 +161,7 @@ def get_employee_by_dni(company_id: int, dni: str) -> str:
         logging.error(f"Unexpected error: {e}")
 
 
-def get_employee_salary(employee_id: int, company_id: int) -> str:
+def get_employee_salary(employee_id: str, company_id: str) -> str | None:
 
     headers = get_headers()
 
@@ -168,48 +178,55 @@ def get_employee_salary(employee_id: int, company_id: int) -> str:
         logging.error(f"Unexpected error: {e}")
 
 
-def get_employee_payrolls(employee_id: int, company_id: int, date_from: Optional[str] = None, date_to: Optional[str] = None ) -> list:
+def get_employee_payrolls(employee_id: str, company_id: str, date_from: Optional[str] = None, date_to: Optional[str] = None ) -> list | None:
 
     headers = get_headers()
-
-    payroll_list = []
 
     try:
         payroll_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{EMPLOYEES_ENDPOINT}/{employee_id}/{PAYROLLS_ENDPOINT}"
         data = {
-            "pageNumber": 1,
-            "pageSize": PAGESIZE 
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE
         }
         response = requests.get(payroll_url, headers=headers, params=data)
 
-        payroll_list.append(response.json())
+        if response.status_code != 200:
+            logging.error(f"Error fetching payrolls: {response.status_code} - {response.text}")
+            return
+
+        first_page = response.json()
+        payrolls = first_page if isinstance(first_page, list) else [first_page]
 
         # Get remaining pages from header
-        metadata = json.loads(response.headers["X-Pagination"])
-        total_pages = metadata["totalPages"]
-        total_count = metadata["totalCount"]
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
 
         if total_pages > 1:
             for page in range(2, total_pages + 1):
-                data["pageNumber"] = page
+                data[PAGE_NUMBER] = page
                 response = requests.get(payroll_url, headers=headers, params=data)
-                payroll_list.append(response.json())
 
-            if len(payroll_url) != total_count:
-                logging.warning(f"Expected {total_count} employees but got {len(payroll_list)}")
-            
-            return payroll_list
+                if response.status_code != 200:
+                    logging.error(f"Error fetching payrolls page {page}: {response.status_code} - {response.text}")
+                    return
 
-        if response.status_code != 200:
-            logging.error(f"Error fetching companies: {response.status_code} - {response.text}")
-            return
-        return response.json()
+                page_data = response.json()
+                if isinstance(page_data, list):
+                    payrolls.extend(page_data)
+                else:
+                    payrolls.append(page_data)
+
+        if len(payrolls) != total_count:
+            logging.warning(f"Expected {total_count} payroll records but got {len(payrolls)}")
+
+        return payrolls
 
     except Exception as e: 
         logging.error(f"Unexpected error: {e}")
 
 
-def get_payslip_data(payslip_id: str, employee_id: int, company_id: int) -> str:
+def get_payslip_data(payslip_id: str, employee_id: str, company_id: str) -> str | None:
 
     headers = get_headers()
 
@@ -224,14 +241,15 @@ def get_payslip_data(payslip_id: str, employee_id: int, company_id: int) -> str:
 
     except Exception as e: 
         logging.error(f"Unexpected error: {e}")
+        return
 
 
 def extract_payslip_data(payslip: dict, payslip_data: dict) -> dict:
     """Extract relevant data from a payslip dictionary."""
     
-    date_from = datetime.fromisoformat(payslip.get("periodStartDate"))
-    date_to = datetime.fromisoformat(payslip.get("periodEndDate"))
-    days = max(30, (date_to - date_from).days +1)
+    date_from = datetime.fromisoformat(payslip.get(START_DATE))
+    date_to = datetime.fromisoformat(payslip.get(END_DATE))
+    days = min(30, (date_to - date_from).days +1)
 
     payroll = {
         "periodo": {
@@ -242,22 +260,194 @@ def extract_payslip_data(payslip: dict, payslip_data: dict) -> dict:
         },
         "devengo_total": payslip_data["totalGross"],
         "deduccion_total": payslip_data["totalDeduction"],
-        "aportacion_empresa_total": payslip_data["costBusiness"]-payslip_data["totalGross"],
+        "aportacion_empresa_total": payslip_data["costBusiness"],
         "liquido_a_percibir": payslip_data["totalGross"] - payslip_data["totalDeduction"],
         "warnings": "downlodaded from a3"}
 
     return payroll
 
 
+def _parse_iso_date(date_str: str) -> datetime:
+    """
+    Safely parse ISO date strings that may end with 'Z' by converting
+    to a timezone-aware datetime. Falls back to naive UTC if offset is
+    missing.
+    """
+    if date_str.endswith("Z"):
+        date_str = date_str.replace("Z", "+00:00")
+    return datetime.fromisoformat(date_str)
+
+
+def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> dict | None:
+    """
+    Return the payslip dict for a given employee (by DNI/NIE) and month.
+
+    Args:
+        company_cif: Company CIF used to resolve company code.
+        employee_id: Employee DNI/NIE used to resolve employee code.
+        month_iso: Month in ISO format. Accepts `YYYY-MM` or any complete
+                   ISO date string; only year and month are used.
+
+    Raises:
+        ValueError: When no payslip matches the month, or when more than
+                    one payslip matches (ambiguous).
+    """
+    # Normalize target month
+    try:
+        target_date = datetime.fromisoformat(month_iso + "-01") if len(month_iso) == 7 else datetime.fromisoformat(month_iso)
+    except Exception as exc:
+        raise ValueError(f"Invalid month format '{month_iso}'. Use 'YYYY-MM'.") from exc
+
+    company_code = get_company_id(company_cif)
+    employee_code = get_employee_by_dni(company_code, employee_id)[EMPLOYEE_A3_CODE]
+    payslips = get_employee_payrolls(employee_code, company_code)
+
+    # Normalise paging shape (get_employee_payrolls may return list of pages)
+    if payslips and isinstance(payslips[0], list):
+        payslips = [p for page in payslips for p in page]
+
+    if not payslips:
+        raise ValueError(f"No payslips found for employee {employee_id}.")
+
+    matching = []
+    for payslip in payslips:
+        start = _parse_iso_date(payslip.get("periodStartDate"))
+        end = _parse_iso_date(payslip.get("periodEndDate"))
+
+        # Use the period start/end dates to match the requested month.
+        if start.year == target_date.year and start.month == target_date.month \
+           and end.year == target_date.year and end.month == target_date.month:
+            matching.append(payslip)
+
+
+
+    if not matching:
+        raise ValueError(f"No payslip found for {employee_id} in {target_date.strftime('%Y-%m')}.")
+    if len(matching) > 1:
+        raise ValueError(f"More than one payslip found for {employee_id} in {target_date.strftime('%Y-%m')}.")
+    
+    payslip_id = matching[0]["payId"]
+    payslip_data = get_payslip_data(payslip_id, employee_code, company_code)
+    extracted = extract_payslip_data(matching[0], payslip_data)
+
+    raw_concepts = get_payslip_concepts(company_code, employee_code, payslip_id)
+    internal_concepts = get_internal_payslip_concepts(company_code, employee_code, payslip_id)
+    
+    print("RAW CONCEPTS:", internal_concepts)
+
+
+def get_payslip_concepts(company_code: str, employee_code: str, payslip_id: str) -> list | None:
+
+    headers = get_headers()
+
+    try:
+        payslip_concepts_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_code}/{EMPLOYEES_ENDPOINT}/{employee_code}/{PAYROLLS_ENDPOINT}/{payslip_id}/{PAYROLL_CONCEPTS_ENDPOINT}"
+        data = {
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE
+        }
+        response = requests.get(payslip_concepts_url, headers=headers, params=data)
+
+        if response.status_code != 200:
+            logging.error(f"Error fetching payslip concepts: {response.status_code} - {response.text}")
+            return
+
+        first_page = response.json()
+        concepts = first_page if isinstance(first_page, list) else [first_page]
+
+        # Get remaining pages from header
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
+
+        if total_pages > 1:
+            for page in range(2, total_pages + 1):
+                data[PAGE_NUMBER] = page
+                response = requests.get(payslip_concepts_url, headers=headers, params=data)
+
+                if response.status_code != 200:
+                    logging.error(f"Error fetching payslip concepts page {page}: {response.status_code} - {response.text}")
+                    return
+
+                page_data = response.json()
+                if isinstance(page_data, list):
+                    concepts.extend(page_data)
+                else:
+                    concepts.append(page_data)
+
+        if len(concepts) != total_count:
+            logging.warning(f"Expected {total_count} payslip concept records but got {len(concepts)}")
+
+        return concepts
+
+    except Exception as e: 
+        logging.error(f"Unexpected error: {e}")
+        return
+    
+
+def get_internal_payslip_concepts(company_code: str, employee_code: str, payslip_id: str) -> list | None:
+
+    headers = get_headers()
+
+    try:
+        payslip_internal_concepts_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_code}/{EMPLOYEES_ENDPOINT}/{employee_code}/{PAYROLLS_ENDPOINT}/{payslip_id}/{PAYROLL_INTERNAL_CONCEPTS_ENDPOINT}"
+        data = {
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE
+        }
+        response = requests.get(payslip_internal_concepts_url, headers=headers, params=data)
+
+        if response.status_code != 200:
+            logging.error(f"Error fetching payslip concepts: {response.status_code} - {response.text}")
+            return
+
+        first_page = response.json()
+        internal_concepts = first_page if isinstance(first_page, list) else [first_page]
+
+        # Get remaining pages from header
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
+
+        if total_pages > 1:
+            for page in range(2, total_pages + 1):
+                data[PAGE_NUMBER] = page
+                response = requests.get(payslip_internal_concepts_url, headers=headers, params=data)
+
+                if response.status_code != 200:
+                    logging.error(f"Error fetching payslip concepts page {page}: {response.status_code} - {response.text}")
+                    return
+
+                page_data = response.json()
+                if isinstance(page_data, list):
+                    internal_concepts.extend(page_data)
+                else:
+                    internal_concepts.append(page_data)
+
+        if len(internal_concepts) != total_count:
+            logging.warning(f"Expected {total_count} payslip concept records but got {len(internal_concepts)}")
+
+        return internal_concepts
+
+    except Exception as e: 
+        logging.error(f"Unexpected error: {e}")
+        return
+
+
+def main(company_cif: str ) -> None:
+    
+    return None
+    # First 
 
 if  __name__ == "__main__":
-    company_code = get_company_id("B56222938")
-    employee_data = get_employee_by_dni(company_code, "49771496W")
-    employee_code = employee_data["employeeCode"]
-    first_payslip = get_employee_payrolls(employee_code, company_code)
-    first_payslip_id = first_payslip[0]["payId"]
-    payslip_data = get_payslip_data(first_payslip_id, employee_code, company_code)
-    extracted_data = extract_payslip_data(first_payslip[0], payslip_data)
-    
-    #print(payslip_data)  
+    # company_code = get_company_id("B56222938")
+    # employee_data = get_employee_by_dni(company_code, "Z3692032P")
+    # employee_code = employee_data["employeeCode"]
+    # first_payslip = get_employee_payrolls(employee_code, company_code)
+    # first_payslip_id = first_payslip[0]["payId"]
+    # payslip_data = get_payslip_data(first_payslip_id, employee_code, company_code)
+    # extracted_data = extract_payslip_data(first_payslip[0], payslip_data)
 
+    match = get_payslip_employee("B56222938", "Z3692032P", "2025-10")
+    
+    # print(match)  

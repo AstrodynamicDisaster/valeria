@@ -1625,6 +1625,8 @@ class ValeriaAgent:
         # Extract SSN from trabajador data
         emp_ssn = trabajador.get("ss_number", "").strip()
 
+        print(f"\nSS HITLER: {emp_ssn}")
+
         # PRIORITY 1: Try to match by SSN first (most reliable - doesn't change with NIE→DNI transitions)
         if emp_ssn:
             print(f"🔍 Searching for employee with SSN: {emp_ssn}")
@@ -1792,26 +1794,23 @@ class ValeriaAgent:
             employee = None
             for id_variant in id_variations:
                 print(f"   → Trying '{id_variant}'... ", end='', flush=True)
-                # Build query - search across all companies if client_id not set
+                # Base query
                 query = self.session.query(Employee).filter_by(identity_card_number=id_variant)
 
-                # Only filter by company if we have one (stricter matching)
-                if client_id:
-                    query = query.filter_by(company_id=client_id)
-                else:
-                    pass  # Search all companies
-
                 # CRITICAL: Filter by employment period dates if payroll_date available
-                if payroll_date:
+                if payroll_date or client_id:
                     # Join with employee_periods to find periods active at payroll_date
-                    query = query.join(EmployeePeriod).filter(
-                        EmployeePeriod.period_begin_date <= payroll_date,
-                        or_(
-                            EmployeePeriod.period_end_date >= payroll_date,
-                            EmployeePeriod.period_end_date == None  # Active periods
-                        ),
-                        EmployeePeriod.period_type.in_(['alta', 'baja'])  # Only employment periods
-                    )
+                    query = query.join(EmployeePeriod)
+
+                    if payroll_date:
+                        query = query.filter(
+                            EmployeePeriod.period_begin_date <= payroll_date,
+                            or_(
+                                EmployeePeriod.period_end_date >= payroll_date,
+                                EmployeePeriod.period_end_date == None  # Active periods
+                            ),
+                            EmployeePeriod.period_type.in_(['alta', 'baja'])  # Only employment periods
+                        )
 
                     # Filter by company if specified
                     if client_id:

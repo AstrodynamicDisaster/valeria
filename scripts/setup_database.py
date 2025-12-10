@@ -239,9 +239,12 @@ def main():
         seed_nomina_concepts(engine)
         create_basic_views(engine)
 
-        # Create documents directory
-        ensure_documents_directory()
-        print("✓ Documents directory created!")
+        # Create documents directory (optional)
+        if os.getenv("DISABLE_LOCAL_DOCUMENTS", "false").lower() == "true":
+            print("⚠️  Skipping documents directory (DISABLE_LOCAL_DOCUMENTS=true)")
+        else:
+            ensure_documents_directory()
+            print("✓ Documents directory created!")
 
         print("=" * 50)
         print("🎉 ValerIA Simplified Database Setup Completed!")

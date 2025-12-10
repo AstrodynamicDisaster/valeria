@@ -27,7 +27,7 @@ class Client(Base):
     fiscal_address = Column(Text)
     email = Column(Text)
     phone = Column(Text)
-    ccc_ss = Column(Text)  # Código Cuenta Cotización Seguridad Social (local only)
+    ccc_ss = Column(Text, unique=True, nullable=False)  # Código Cuenta Cotización Seguridad Social (local only)
     begin_date = Column(DateTime(timezone=True))
     managed_by = Column(Text)
     payslips = Column(Boolean, default=True)

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Dict
 
+from sqlalchemy import or_
+
 from sqlalchemy.orm import Session
 
 from core.agent.state import VidaLaboralContext
@@ -17,7 +19,13 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
     """Create or find employee and create ALTA period."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
-    first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
+    # Prefer structured fields when provided (from prod DB); fallback to parsing full name
+    if row.get('first_name_raw') or row.get('surname1_raw'):
+        first_name = row.get('first_name_raw') or "Unknown"
+        last_name = row.get('surname1_raw') or "Unknown"
+        last_name2 = row.get('surname2_raw')
+    else:
+        first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     begin_date = parse_date(row.get('f_efecto_alta'))
     ss_number = row.get('naf', '').strip() or None
@@ -53,6 +61,31 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
         print(f"⚠️  Skipping ALTA for {row['nombre']} ({documento}) - employee not found")
         return
 
+    # Merge: if there's already an open/overlapping ALTA for this employee+company, reuse it
+    existing_alta = None
+    if begin_date:
+        existing_alta = session.query(EmployeePeriod).filter(
+            EmployeePeriod.employee_id == employee.id,
+            EmployeePeriod.company_id == client_id,
+            EmployeePeriod.period_type == 'alta',
+            or_(
+                EmployeePeriod.period_end_date.is_(None),
+                EmployeePeriod.period_end_date >= begin_date
+            ),
+            EmployeePeriod.period_begin_date <= begin_date
+        ).order_by(EmployeePeriod.period_begin_date.asc()).first()
+
+    if existing_alta:
+        # Expand existing period if new begin is earlier
+        if begin_date and existing_alta.period_begin_date and begin_date < existing_alta.period_begin_date:
+            existing_alta.period_begin_date = begin_date
+        # Fill missing contract code if we have one
+        if not existing_alta.tipo_contrato:
+            existing_alta.tipo_contrato = row.get('codigo_contrato', '')
+        context.employees_updated += 1
+        print(f"ℹ️  Merged ALTA for {row['nombre']} (reuse existing period starting {existing_alta.period_begin_date})")
+        return
+
     # Create the ALTA period
     period = EmployeePeriod(
         employee_id=employee.id,
@@ -74,7 +107,12 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
     """Find active ALTA period and close it (change to BAJA)."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
-    first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
+    if row.get('first_name_raw') or row.get('surname1_raw'):
+        first_name = row.get('first_name_raw') or "Unknown"
+        last_name = row.get('surname1_raw') or "Unknown"
+        last_name2 = row.get('surname2_raw')
+    else:
+        first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     ss_number = row.get('naf', '').strip() or None
     end_date = parse_date(row.get('f_real_sit'))
@@ -90,9 +128,23 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
         employee = session.query(Employee).filter_by(identity_card_number=documento).first()
 
     if not employee:
-        context.employees_not_found += 1
-        print(f"⚠️  Skipping BAJA for {row['nombre']} ({documento}) - employee not found")
-        return
+        if context.create_employees:
+            employee = Employee(
+                first_name=first_name,
+                last_name=last_name,
+                last_name2=last_name2,
+                identity_card_number=documento,
+                identity_doc_type=identity_doc_type,
+                ss_number=ss_number,
+            )
+            session.add(employee)
+            session.flush()
+            context.employees_created += 1
+            print(f"✅ Created employee from BAJA fallback: {row['nombre']} ({documento})")
+        else:
+            context.employees_not_found += 1
+            print(f"⚠️  Skipping BAJA for {row['nombre']} ({documento}) - employee not found")
+            return
 
     # Find active ALTA period for this employee and company
     active_period = session.query(EmployeePeriod).filter_by(
@@ -101,6 +153,10 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
         period_type='alta',
         period_end_date=None
     ).order_by(EmployeePeriod.period_begin_date.desc()).first()
+
+    # If an active ALTA exists but starts after the BAJA end date, it's not the one to close.
+    if active_period and end_date and active_period.period_begin_date and active_period.period_begin_date > end_date:
+        active_period = None
 
     if active_period:
         # Modify the existing ALTA period: add end_date and change type to 'baja'
@@ -111,7 +167,7 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
         return
 
     # If no active ALTA found, create a terminated period (BAJA without prior ALTA in our system)
-    begin_date = parse_date(row.get('f_efecto_alta'))
+    begin_date = parse_date(row.get('f_real_alta'))
     period = EmployeePeriod(
         employee_id=employee.id,
         company_id=client_id,
