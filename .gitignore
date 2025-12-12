@@ -27,5 +27,10 @@ __pycache__/
 
 # Documents storage
 /docs
-test*
+# test*   # better specify the files or directories we want to ignore
 nginx.conf
+
+
+ai-vision/*
+core/vision_model/tests/test_executions/*.txt
+core/vision_model/tests/test_executions/*.json
