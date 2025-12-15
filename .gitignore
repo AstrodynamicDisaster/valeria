@@ -34,3 +34,4 @@ nginx.conf
 ai-vision/*
 core/vision_model/tests/test_executions/*.txt
 core/vision_model/tests/test_executions/*.json
+processed_documents/

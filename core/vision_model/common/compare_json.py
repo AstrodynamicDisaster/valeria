@@ -123,3 +123,4 @@ def _compare_object_lists_by_key(a: List[Dict], b: List[Dict], path: str,
         else:
             _compare(map_a[k], map_b[k], new_path, diffs,
                      ignore_array_order, key)
+

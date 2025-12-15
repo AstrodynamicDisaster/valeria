@@ -10,18 +10,14 @@ from core.vision_model.payslips.payslip_parsers import (
     create_openai_parser,
 )
 from core.vision_model.payslips.payslip_models import PayslipData
-from core.vision_model.tests.compare_json import compare_json
-from core.vision_model.tests.utils import get_page_as_pdf
-from core.vision_model.tests.pricing_config import (
+from core.vision_model.common import (
+    compare_json,
     get_openai_pricing,
     get_gemini_pricing,
     calculate_cost,
+    get_page_as_pdf,
+    find_pdf_files,
 )
-
-
-def find_pdf_files(directory: Path) -> list[Path]:
-    """Find all PDF files in the given directory."""
-    return list(directory.glob("*.pdf"))
 
 
 def process_pdf_comparison(
