@@ -2,7 +2,7 @@
 Vision model parsers for payslip extraction.
 """
 
-from core.vision_model.payslip_parsers import (
+from core.vision_model.payslips.payslip_parsers import (
     BasePayslipParser,
     OpenAIPayslipParser,
     GeminiPayslipParser,
@@ -10,7 +10,7 @@ from core.vision_model.payslip_parsers import (
     create_gemini_parser,
 )
 
-from core.vision_model.payslip_models import (
+from core.vision_model.payslips.payslip_models import (
     PayslipData,
     Empresa,
     Trabajador,
