@@ -26,6 +26,11 @@ from core.vision_model.settlements.settlement_models import SettlementData
 from core.vision_model.document_classifier import DocumentClassifier
 
 
+class UnsupportedDocumentTypeError(Exception):
+    """Raised when a document is classified as an unsupported type (e.g., 'other')."""
+    pass
+
+
 class AutoParser:
     """
     Auto parser that automatically classifies documents and routes to appropriate parser.
@@ -140,9 +145,14 @@ class AutoParser:
         if document_type == "payslip":
             parser = self._get_payslip_parser()
             parsed_data = parser.parse_to_model(pdf_bytes, text_doc)
-        else:  # settlement
+        elif document_type == "settlement":
             parser = self._get_settlement_parser()
             parsed_data = parser.parse_to_model(pdf_bytes, text_doc)
+        else:  # other
+            raise UnsupportedDocumentTypeError(
+                f"Document classified as '{document_type}'. Skipping processing. "
+                f"Reasoning: {classification_info.get('reasoning', 'N/A')}"
+            )
         
         return parsed_data, classification_info
     
@@ -197,11 +207,16 @@ class AutoParser:
             data_dict, usage_info = parser.parse_with_usage(pdf_bytes, text_doc)
             parsed_data = PayslipData(**data_dict)
             parsed_data.verify_and_correct_aportacion_empresa_total()
-        else:  # settlement
+        elif document_type == "settlement":
             parser = self._get_settlement_parser()
             data_dict, usage_info = parser.parse_with_usage(pdf_bytes, text_doc)
             parsed_data = SettlementData(**data_dict)
             parsed_data.verify_and_correct_total()
+        else:  # other
+            raise UnsupportedDocumentTypeError(
+                f"Document classified as '{document_type}'. Skipping processing. "
+                f"Reasoning: {classification_info.get('reasoning', 'N/A')}"
+            )
         
         return parsed_data, classification_info, usage_info
 

@@ -78,3 +78,6 @@ def calculate_cost(input_tokens: int, output_tokens: int, input_price: float, ou
     output_cost = (output_tokens / 1000.0) * output_price
     return input_cost + output_cost
 
+
+
+

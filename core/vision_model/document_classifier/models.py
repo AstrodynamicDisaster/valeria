@@ -16,9 +16,9 @@ class ClassificationResult(BaseModel):
         ...,
         description="Brief explanation of why this classification was chosen"
     )
-    document_type: Literal["payslip", "settlement"] = Field(
+    document_type: Literal["payslip", "settlement", "other"] = Field(
         ...,
-        description="Type of document: 'payslip' or 'settlement'"
+        description="Type of document: 'payslip', 'settlement' or 'other'"
     )
     confidence: Literal["high", "medium", "low"] = Field(
         ...,

@@ -34,24 +34,26 @@ CLASSIFICATION_PROMPT = """You are a document classifier for Spanish labor docum
 
 Based on the text content provided, determine the document type. Return ONLY a JSON object with the following structure:
 {
-  "document_type": "payslip" or "settlement",
+  "document_type": "payslip", "settlement" or "other",
   "confidence": "high" or "medium" or "low",
   "reasoning": "brief explanation of why this classification was chosen"
 }
 
-Key indicators for PAYSLIP (nómina):
+Key indicators for PAYSLIP (or PAYSLIP with finiquito) (nómina):
 - Contains "NÓMINA" or "NOMINA" in the title
 - Shows monthly/periodic payroll information
 - Contains sections like "DEVENGOS" (earnings), "DEDUCCIONES" (deductions), "APORTACIONES EMPRESA" (employer contributions)
 - Shows a payroll period (desde/hasta dates)
 - Contains salary breakdown with multiple items
+- Could contain a finiquito section, but it is not the main purpose of the document and should be classified as PAYSLIP.
 
-Key indicators for SETTLEMENT (finiquito/liquidación):
+Key indicators for single SETTLEMENT (finiquito/liquidación):
 - Contains "FINIQUITO", "LIQUIDACIÓN", "FECHA CESE", "CAUSA" (termination date/reason)
 - Mentions termination of employment ("cesa en la prestación de sus servicios")
 - Contains "liquidación de partes proporcionales" (proportional settlement)
 - Shows settlement items like vacation pay, extra pay, indemnization
 - Typically a one-time document, not periodic
+- Does not contain anything realted to a payroll.
 
 Return ONLY the JSON object, no markdown, no explanations."""
 
@@ -180,7 +182,7 @@ class DocumentClassifier:
             # Validate structure
             if "document_type" not in result:
                 raise ValueError("Classification result missing 'document_type' field")
-            if result["document_type"] not in ["payslip", "settlement"]:
+            if result["document_type"] not in ["payslip", "settlement", "other"]:
                 raise ValueError(f"Invalid document_type: {result['document_type']}")
             return result
         except json.JSONDecodeError as e:
@@ -216,7 +218,7 @@ class DocumentClassifier:
             # Validate structure
             if "document_type" not in result:
                 raise ValueError("Classification result missing 'document_type' field")
-            if result["document_type"] not in ["payslip", "settlement"]:
+            if result["document_type"] not in ["payslip", "settlement", "other"]:
                 raise ValueError(f"Invalid document_type: {result['document_type']}")
             return result
         except json.JSONDecodeError as e:
