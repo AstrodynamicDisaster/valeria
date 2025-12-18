@@ -81,6 +81,11 @@ as a deduction and not as a devengo.
     "aportacion_empresa_total": 0,
     "liquido_a_percibir": 0
   },
+  "prorrata_pagas_extra": 0,
+  "base_cc": 0,
+  "base_at_ep": 0,
+  "base_irpf": 0,
+  "tipo_irpf": 0,
   "warnings": ["string"]
 }
 
@@ -181,6 +186,8 @@ def recompute_totals(payroll_data: Dict) -> Dict:
         for item in items:
             if isinstance(item, dict):
                 importe = item.get('importe')
+                if importe is None:
+                    importe = item.get('amount')
                 if importe is not None:
                     try:
                         total += float(importe)
@@ -206,6 +213,40 @@ def recompute_totals(payroll_data: Dict) -> Dict:
         'aportacion_empresa_total': aportacion_empresa_total,
         'liquido_a_percibir': liquido_a_percibir
     }
+
+    return payroll_data
+
+
+def normalize_payroll_payload(payroll_data: Dict) -> Dict:
+    if not isinstance(payroll_data, dict):
+        return payroll_data
+
+    def normalize_items(items: Optional[list]) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("concept") is None and item.get("concepto") is not None:
+                item["concept"] = item.get("concepto")
+            if item.get("amount") is None and item.get("importe") is not None:
+                item["amount"] = item.get("importe")
+            item.setdefault("is_taxable_income", False)
+            item.setdefault("is_taxable_ss", False)
+            item.setdefault("is_sickpay", False)
+            item.setdefault("is_in_kind", False)
+            item.setdefault("is_pay_advance", False)
+            item.setdefault("is_seizure", False)
+
+    normalize_items(payroll_data.get("devengo_items"))
+    normalize_items(payroll_data.get("deduccion_items"))
+    normalize_items(payroll_data.get("aportacion_empresa_items"))
+
+    payroll_data.setdefault("prorrata_pagas_extra", 0)
+    payroll_data.setdefault("base_cc", 0)
+    payroll_data.setdefault("base_at_ep", 0)
+    payroll_data.setdefault("base_irpf", 0)
+    payroll_data.setdefault("tipo_irpf", 0)
 
     return payroll_data
 
@@ -289,6 +330,7 @@ def process_payslip(pdf_path: str, session=None):
                 print("   📊 Extracted data:")
                 # print output json pretty
                 payroll = json.loads(payroll)
+                payroll = normalize_payroll_payload(payroll)
                 print(json.dumps(payroll, ensure_ascii=False, indent=2))
 
                 # Recompute totals to ensure accuracy

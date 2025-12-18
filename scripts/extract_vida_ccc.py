@@ -2,16 +2,25 @@ import re
 import json
 import sys
 import csv
+import tempfile
 
 
 def parse_vida_laboral(filepath):
     employees = []
     current_employee = None
     total_trabajadores_alta_reportado = None
+    ccc = None  # Codigo Cuenta Cotizacion (company location code)
 
     with open(filepath, 'r', encoding='latin1') as f:
         for line in f:
             line = line.rstrip("\n")
+
+            # Extract CCC from header (format: "Codigo Cuenta Cotizacion  07 132297640")
+            if ccc is None:
+                match_ccc = re.search(r'Codigo Cuenta Cotizacion\s+(\d{2})\s+(\d+)', line)
+                if match_ccc:
+                    # Join province code and CCC number without spaces
+                    ccc = match_ccc.group(1) + match_ccc.group(2)
 
             # Buscar línea que reporte "TOTAL TRABAJADORES EN ALTA"
             match_total = re.search(r'TOTAL TRABAJADORES EN ALTA\s+(\d+)', line)
@@ -78,6 +87,7 @@ def parse_vida_laboral(filepath):
     for emp in employees:
         for mov in emp['movimientos']:
             record = {
+                'ccc': ccc,  # Company location CCC (same for all employees in this file)
                 'naf': emp['naf'],
                 'documento': emp['documento'],
                 'nombre': emp['nombre'],
@@ -91,6 +101,35 @@ def parse_vida_laboral(filepath):
 
     return movimientos, total_trabajadores_alta_reportado, employees
 
+def import_vida_laboral(filepath:str, tmp_path:str):
+
+    movimientos, total_reportado, employees = parse_vida_laboral(filepath)
+
+    # Name the output CSV with a random name in the tmp_path every time
+    tmp_file = tempfile.NamedTemporaryFile(dir=tmp_path, prefix="vida_", suffix=".csv", delete=False)
+    output_csv = tmp_file.name
+    tmp_file.close()
+
+    fieldnames = ["ccc", "naf", "documento", "nombre", "situacion", "f_real_alta", "f_efecto_alta", "f_real_sit", "codigo_contrato"]
+    with open(output_csv, "w", newline='', encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in movimientos:
+            writer.writerow(row)
+
+    # Final check: cada DNI único cuenta como un trabajador en alta
+    unique_trabajadores = len({emp['documento'] for emp in employees})
+    print(f"\nTrabajadores en alta extraídos (únicos por DNI): {unique_trabajadores}")
+    if total_reportado is not None:
+        print(f"Total TRABAJADORES EN ALTA reportado: {total_reportado}")
+        if unique_trabajadores == total_reportado:
+            print("El total coincide con la extracción.")
+        else:
+            print("¡Atención! El total extraído no coincide con el reportado.")
+    else:
+        print("No se encontró la línea 'TOTAL TRABAJADORES EN ALTA' en el archivo.")
+
+    print(f"\nDatos exportados en {output_csv}") 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -102,7 +141,7 @@ if __name__ == '__main__':
 
     # Generar archivo CSV
     output_csv = "output.csv"
-    fieldnames = ["naf", "documento", "nombre", "situacion", "f_real_alta", "f_efecto_alta", "f_real_sit", "codigo_contrato"]
+    fieldnames = ["ccc", "naf", "documento", "nombre", "situacion", "f_real_alta", "f_efecto_alta", "f_real_sit", "codigo_contrato"]
     with open(output_csv, "w", newline='', encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()

@@ -17,7 +17,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 # Import and run main from root main.py
-from main import main
+from main_old import main
 
 if __name__ == "__main__":
     main()

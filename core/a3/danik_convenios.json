@@ -1,0 +1,146 @@
+[
+    [
+        {
+            "conceptCode": 1,
+            "conceptType": "E",
+            "description": "Horas Extra"
+        },
+        {
+            "conceptCode": 2,
+            "conceptType": "E",
+            "description": "Horas Extra"
+        },
+        {
+            "conceptCode": 11,
+            "conceptType": "V",
+            "description": "Bolsa de estudios"
+        },
+        {
+            "conceptCode": 30,
+            "conceptType": "V",
+            "description": "Gratificaci\u00f3n"
+        },
+        {
+            "conceptCode": 31,
+            "conceptType": "V",
+            "description": "Productividad"
+        },
+        {
+            "conceptCode": 33,
+            "conceptType": "V",
+            "description": "Bonus"
+        },
+        {
+            "conceptCode": 37,
+            "conceptType": "V",
+            "description": "Plus herramientas de trabajo"
+        },
+        {
+            "conceptCode": 38,
+            "conceptType": "V",
+            "description": "Bonus neto"
+        },
+        {
+            "conceptCode": 50,
+            "conceptType": "V",
+            "description": "Ajuste SMI"
+        },
+        {
+            "conceptCode": 60,
+            "conceptType": "V",
+            "description": "Plus Compensable/Absorbible"
+        },
+        {
+            "conceptCode": 101,
+            "conceptType": "V",
+            "description": "Festivos trabajados"
+        },
+        {
+            "conceptCode": 181,
+            "conceptType": "V",
+            "description": "Kilometraje"
+        },
+        {
+            "conceptCode": 182,
+            "conceptType": "V",
+            "description": "Gastos locomoci\u00f3n"
+        },
+        {
+            "conceptCode": 190,
+            "conceptType": "V",
+            "description": "Plus peligrosidad"
+        },
+        {
+            "conceptCode": 198,
+            "conceptType": "V",
+            "description": "Ajuste Vacaciones"
+        },
+        {
+            "conceptCode": 201,
+            "conceptType": "V",
+            "description": "Horas complementarias"
+        },
+        {
+            "conceptCode": 230,
+            "conceptType": "V",
+            "description": "Absentismo"
+        },
+        {
+            "conceptCode": 235,
+            "conceptType": "V",
+            "description": "Efectivo"
+        },
+        {
+            "conceptCode": 236,
+            "conceptType": "V",
+            "description": "CashBalance"
+        },
+        {
+            "conceptCode": 237,
+            "conceptType": "V",
+            "description": "Devoluci\u00f3n efectivo"
+        },
+        {
+            "conceptCode": 240,
+            "conceptType": "V",
+            "description": "Descuento nomina"
+        },
+        {
+            "conceptCode": 243,
+            "conceptType": "V",
+            "description": "Ajuste - Descuento error horas"
+        },
+        {
+            "conceptCode": 244,
+            "conceptType": "V",
+            "description": "Ajuste Positivo"
+        },
+        {
+            "conceptCode": 254,
+            "conceptType": "V",
+            "description": "Seguro Accidentes"
+        },
+        {
+            "conceptCode": 322,
+            "conceptType": "V",
+            "description": "Regularizacion meses anteriore"
+        }
+    ],
+    [
+        {
+            "conceptCode": 323,
+            "conceptType": "V",
+            "description": "Regularizacion meses anteriore"
+        },
+        {
+            "conceptCode": 352,
+            "conceptType": "V",
+            "description": "Propinas"
+        },
+        {
+            "conceptCode": 398,
+            "conceptType": "V",
+            "description": "Plus Transporte               "
+        }
+    ]
+]

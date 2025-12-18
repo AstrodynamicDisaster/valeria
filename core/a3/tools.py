@@ -2,7 +2,9 @@ import requests
 from typing import Optional
 import logging
 import json
+#from . import config as Config
 import config as Config
+import mappings
 from datetime import datetime
 # Import Payroll models from core/models but imagining we are inside the a3 folder
 
@@ -25,6 +27,8 @@ PAYROLLS_ENDPOINT = "pays"
 PAYROLL_DATA_ENDPOINT = "paydata"
 PAYROLL_CONCEPTS_ENDPOINT = "concepts"
 PAYROLL_INTERNAL_CONCEPTS_ENDPOINT = "calculatedinternalconcepts"
+AGREEMENTS_ENDPOINT = "agreements"
+CONCEPTS_ENDPOINT = "concepts"
 
 # ENDPOINT KEYS
 COMPANY_CODE = "companyCode"
@@ -32,7 +36,6 @@ NIF = "identifierNumber"
 EMPLOYEE_A3_CODE = "employeeCode"
 START_DATE = "periodStartDate"
 END_DATE = "periodEndDate"
-
 
 
 def get_bearer_token() -> str | None:
@@ -262,6 +265,37 @@ def extract_payslip_data(payslip: dict, payslip_data: dict) -> dict:
         "deduccion_total": payslip_data["totalDeduction"],
         "aportacion_empresa_total": payslip_data["costBusiness"],
         "liquido_a_percibir": payslip_data["totalGross"] - payslip_data["totalDeduction"],
+        "prorrata_pagas_extra": payslip_data.get("prorratedExtraPay", 0),
+        "base_cc": payslip_data.get("baseCC", 0),
+        "base_at_ep": payslip_data.get("baseAC", 0),
+        "base_irpf": payslip_data.get("totalBaseIRPF", 0),
+        "tipo_irpf": payslip_data.get("tipoIRPF", 0),
+        "warnings": "downlodaded from a3"}
+
+    return payroll
+
+def extract_payslip_concepts():
+
+    date_from = datetime.fromisoformat(payslip.get(START_DATE))
+    date_to = datetime.fromisoformat(payslip.get(END_DATE))
+    days = min(30, (date_to - date_from).days +1)
+
+    payroll = {
+        "periodo": {
+            "desde": date_from.date().isoformat(),
+            "hasta":  date_to.date().isoformat(),
+            "dias": days
+
+        },
+        "devengo_total": payslip_data["totalGross"],
+        "deduccion_total": payslip_data["totalDeduction"],
+        "aportacion_empresa_total": payslip_data["costBusiness"],
+        "liquido_a_percibir": payslip_data["totalGross"] - payslip_data["totalDeduction"],
+        "prorrata_pagas_extra": payslip_data.get("prorratedExtraPay", 0),
+        "base_cc": payslip_data.get("baseCC", 0),
+        "base_at_ep": payslip_data.get("baseAC", 0),
+        "base_irpf": payslip_data.get("totalBaseIRPF", 0),
+        "tipo_irpf": payslip_data.get("tipoIRPF", 0),
         "warnings": "downlodaded from a3"}
 
     return payroll
@@ -278,7 +312,7 @@ def _parse_iso_date(date_str: str) -> datetime:
     return datetime.fromisoformat(date_str)
 
 
-def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> dict | None:
+def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> list | None:
     """
     Return the payslip dict for a given employee (by DNI/NIE) and month.
 
@@ -318,22 +352,40 @@ def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> 
         if start.year == target_date.year and start.month == target_date.month \
            and end.year == target_date.year and end.month == target_date.month:
             matching.append(payslip)
+            print("MATCHING PAYSLIP")
 
 
 
     if not matching:
         raise ValueError(f"No payslip found for {employee_id} in {target_date.strftime('%Y-%m')}.")
-    if len(matching) > 1:
-        raise ValueError(f"More than one payslip found for {employee_id} in {target_date.strftime('%Y-%m')}.")
+    #if len(matching) > 1:
+        #raise ValueError(f"More than one payslip found for {employee_id} in {target_date.strftime('%Y-%m')}.")
     
-    payslip_id = matching[0]["payId"]
-    payslip_data = get_payslip_data(payslip_id, employee_code, company_code)
-    extracted = extract_payslip_data(matching[0], payslip_data)
 
-    raw_concepts = get_payslip_concepts(company_code, employee_code, payslip_id)
-    internal_concepts = get_internal_payslip_concepts(company_code, employee_code, payslip_id)
-    
-    print("RAW CONCEPTS:", internal_concepts)
+    retrieved_payslips = []
+
+    for payslip in matching:
+
+        payslip_glob = payslip
+        payslip_id = payslip["payId"]
+        payslip_data = get_payslip_data(payslip_id, employee_code, company_code)
+        extracted = extract_payslip_data(matching[0], payslip_data)
+
+        #matching[0]=
+        raw_concepts = get_payslip_concepts(company_code, employee_code, payslip_id)
+        internal_concepts = get_internal_payslip_concepts(company_code, employee_code, payslip_id)
+        
+        # print("RAW CONCEPTS:", internal_concepts)
+
+        out_dict = {
+            "payslip": payslip_glob,
+            "data": payslip_data,
+            "raw_concepts": raw_concepts,
+            "internal_concepts": internal_concepts,
+        }
+        retrieved_payslips.append(out_dict)
+
+    return retrieved_payslips
 
 
 def get_payslip_concepts(company_code: str, employee_code: str, payslip_id: str) -> list | None:
@@ -433,6 +485,91 @@ def get_internal_payslip_concepts(company_code: str, employee_code: str, payslip
         logging.error(f"Unexpected error: {e}")
         return
 
+def get_company_agreements(company_cif: str) -> list | None:
+
+    company_id = get_company_id(company_cif)
+
+    headers = get_headers()
+
+    agreements_list = []
+    try:
+        company_agreements_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{AGREEMENTS_ENDPOINT}"
+        data = {
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE 
+        }
+        response = requests.get(company_agreements_url, headers=headers, params=data)
+
+        agreements_list.append(response.json())
+
+        # Get remaining pages from header
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
+
+        if total_pages > 1:
+            for page in range(2, total_pages + 1):
+                data[PAGE_NUMBER] = page
+                response = requests.get(company_agreements_url, headers=headers, params=data)
+                agreements_list.append(response.json())
+
+            if len(agreements_list) != total_count:
+                logging.warning(f"Expected {total_count} employees but got {len(agreements_list)}")
+            
+            return agreements_list
+
+        if response.status_code != 200:
+            logging.error(f"Error fetching companies: {response.status_code} - {response.text}")
+            return
+        return response.json()
+
+    except Exception as e: 
+        logging.error(f"Unexpected error: {e}")
+
+def get_agreement_details(agreement_id: str) -> None:
+    pass
+
+def get_company_concepts(company_cif: str) -> list | None:
+
+    company_id = get_company_id(company_cif)
+
+    headers = get_headers()
+
+    concepts_list = []
+    try:
+        company_concepts_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{CONCEPTS_ENDPOINT}"
+        data = {
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE 
+        }
+        response = requests.get(company_concepts_url, headers=headers, params=data)
+
+        concepts_list.append(response.json())
+
+        # Get remaining pages from header
+        metadata = json.loads(response.headers[PAGINATION_HEADER])
+        total_pages = metadata[TOTAL_PAGES]
+        total_count = metadata[TOTAL_COUNT]
+
+        if total_pages > 1:
+            for page in range(2, total_pages + 1):
+                data[PAGE_NUMBER] = page
+                response = requests.get(company_concepts_url, headers=headers, params=data)
+                concepts_list.append(response.json())
+
+            if len(concepts_list) != total_count:
+                logging.warning(f"Expected {total_count} employees but got {len(concepts_list)}")
+            
+            return concepts_list
+
+        if response.status_code != 200:
+            logging.error(f"Error fetching companies: {response.status_code} - {response.text}")
+            return
+        return response.json()
+
+    except Exception as e: 
+        logging.error(f"Unexpected error: {e}")
+
 
 def main(company_cif: str ) -> None:
     
@@ -440,6 +577,37 @@ def main(company_cif: str ) -> None:
     # First 
 
 if  __name__ == "__main__":
+
+    # Import from parent folder
+    # import sys
+    # import os
+    # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # import core.production_models as prod_models
+
+    company_cif = "B56222938"
+
+    result = get_company_concepts(company_cif)
+    print("AGREEMENTS RESULT:", result)
+    # Write results in danik_convenios.json
+    with open("danik_convenios.json", "w") as f:
+        json.dump(result, f, indent=4)
+
+
+    agreement_code = "07000835011982"
+
+    # Print the output of mappings.get_concept_mapping()
+    concept_mapping = mappings.get_concept_mapping(352)
+    print("CONCEPT MAPPING:", concept_mapping)
+
+
+
+    # Get company from prod by CIF
+    # company = prod_models.get_production_company_by_cif(prod_models.create_production_session(), company_cif)
+
+    # Get com
+    
+
+    # Insert a company in the database in the client table with cif, name, 
     # company_code = get_company_id("B56222938")
     # employee_data = get_employee_by_dni(company_code, "Z3692032P")
     # employee_code = employee_data["employeeCode"]
@@ -448,6 +616,7 @@ if  __name__ == "__main__":
     # payslip_data = get_payslip_data(first_payslip_id, employee_code, company_code)
     # extracted_data = extract_payslip_data(first_payslip[0], payslip_data)
 
-    match = get_payslip_employee("B56222938", "Z3692032P", "2025-10")
+    # match = get_payslip_employee("B56222938", "Z3692032P", "2025-10")
     
     # print(match)  
+

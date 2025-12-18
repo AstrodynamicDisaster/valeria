@@ -1,0 +1,283 @@
+{
+	"info": {
+		"_postman_id": "7d382652-ae57-42bc-a09c-5233711be52f",
+		"name": "Bankflip Payslip AI API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "14428055"
+	},
+	"item": [
+		{
+			"name": "Webhook Subscriptions",
+			"item": [
+				{
+					"name": "List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://{{host}}/webhook-subscription",
+							"protocol": "https",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"webhook-subscription"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"events\": [\n    \"model_extracted\",\n    \"session_completed\"\n  ],\n  \"url\": \"https://eouh352uox42gws.m.pipedream.net\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://{{host}}/webhook-subscription",
+							"protocol": "https",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"webhook-subscription"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"events\": [\n    \"model_extracted\",\n    \"session_completed\"\n  ],\n  \"url\": \"https://eouh352uox42gws.m.pipedream.net\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://{{host}}/webhook-subscription/:id",
+							"protocol": "https",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"webhook-subscription",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "List Analysis Request",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://{{host}}/payslip/analysis-request?limit=100",
+					"protocol": "https",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"payslip",
+						"analysis-request"
+					],
+					"query": [
+						{
+							"key": "cursor",
+							"value": "AAABhXOB7EUxrZ6avdhHAoxm35AIiiKP",
+							"disabled": true
+						},
+						{
+							"key": "limit",
+							"value": "100"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Analysis Request",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://{{host}}/payslip/analysis-request/:analysisRequestId",
+					"protocol": "https",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"payslip",
+						"analysis-request",
+						":analysisRequestId"
+					],
+					"variable": [
+						{
+							"key": "analysisRequestId",
+							"value": ""
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Document Content",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://{{host}}/payslip/document/:documentId/content",
+					"protocol": "https",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"payslip",
+						"document",
+						":documentId",
+						"content"
+					],
+					"variable": [
+						{
+							"key": "documentId",
+							"value": ""
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Analysis Request",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"documents\": [\n        {\n            \"content\": \"...\",\n            \"contentType\": \"application/pdf\",\n            \"extension\": \"pdf\",\n            \"name\": \"NominaFebrero2023\"\n        }\n    ],\n    \"validityChecks\": [\n    {\n      \"key\": \"PayslipIsNotTooOld\",\n      \"params\": {\n        \"max\": {\n          \"months\": 3\n        }\n      }\n    }\n  ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://{{host}}/payslip/analysis-request",
+					"protocol": "https",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"payslip",
+						"analysis-request"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Analysis Request",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "https://{{host}}/payslip/analysis-request/:analysisRequestId",
+					"protocol": "https",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"payslip",
+						"analysis-request",
+						":analysisRequestId"
+					],
+					"variable": [
+						{
+							"key": "analysisRequestId",
+							"value": ""
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{apiKey}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "apiKey",
+			"value": "REDACTED"
+		},
+		{
+			"key": "host",
+			"value": "core.sandbox.bankflip.io",
+			"type": "string"
+		}
+	]
+}

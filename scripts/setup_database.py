@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Import from core module
 from core.models import (
-    Base, Client, Employee, EmployeePeriod, NominaConcept, Document,
+    Base, Client, ClientLocation, Employee, EmployeePeriod, NominaConcept, Document,
     Payroll, PayrollLine, ChecklistItem
 )
 from core.database import (
@@ -39,9 +39,11 @@ def create_indexes(engine):
     indexes = [
         Index('idx_employees_identity_card', Employee.identity_card_number),
         Index('idx_employee_periods_employee_id', EmployeePeriod.employee_id),
-        Index('idx_employee_periods_company_id', EmployeePeriod.company_id),
+        Index('idx_employee_periods_location_id', EmployeePeriod.location_id),
         Index('idx_employee_periods_dates', EmployeePeriod.period_begin_date, EmployeePeriod.period_end_date),
         Index('idx_employee_periods_type', EmployeePeriod.period_type),
+        Index('idx_client_locations_company_id', ClientLocation.company_id),
+        Index('idx_client_locations_ccc_ss', ClientLocation.ccc_ss),
         Index('idx_documents_client_id', Document.client_id),
         Index('idx_documents_employee_id', Document.employee_id),
         Index('idx_documents_status', Document.status),
@@ -49,7 +51,7 @@ def create_indexes(engine):
         Index('idx_payrolls_created_at', Payroll.created_at),
         Index('idx_payroll_lines_payroll_id', PayrollLine.payroll_id),
         Index('idx_payroll_lines_category', PayrollLine.category),
-        Index('idx_payroll_lines_concepto', PayrollLine.concepto),
+        Index('idx_payroll_lines_concept', PayrollLine.concept),
         Index('idx_checklist_items_client_id', ChecklistItem.client_id),
         Index('idx_checklist_items_status', ChecklistItem.status),
         Index('idx_checklist_items_due_date', ChecklistItem.due_date),
@@ -139,8 +141,9 @@ def create_basic_views(engine):
         active_employees AS (
             SELECT DISTINCT ON (ep.employee_id)
                 ep.employee_id,
-                ep.company_id
+                cl.company_id
             FROM employee_periods ep
+            JOIN client_locations cl ON ep.location_id = cl.id
             WHERE ep.period_type = 'alta'
               AND ep.period_end_date IS NULL
             ORDER BY ep.employee_id, ep.period_begin_date DESC
@@ -176,8 +179,9 @@ def create_basic_views(engine):
         active_employees AS (
             SELECT DISTINCT ON (ep.employee_id)
                 ep.employee_id,
-                ep.company_id
+                cl.company_id
             FROM employee_periods ep
+            JOIN client_locations cl ON ep.location_id = cl.id
             WHERE ep.period_type = 'alta'
               AND ep.period_end_date IS NULL
             ORDER BY ep.employee_id, ep.period_begin_date DESC

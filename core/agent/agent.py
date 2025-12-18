@@ -334,6 +334,26 @@ class ValeriaAgent:
                                 "type": "number",
                                 "description": "Net amount payable to employee"
                             },
+                            "prorrata_pagas_extra": {
+                                "type": "number",
+                                "description": "Prorrata pagas extra (optional)"
+                            },
+                            "base_cc": {
+                                "type": "number",
+                                "description": "Base contingencias comunes (optional)"
+                            },
+                            "base_at_ep": {
+                                "type": "number",
+                                "description": "Base AT/EP (optional)"
+                            },
+                            "base_irpf": {
+                                "type": "number",
+                                "description": "Base IRPF (optional)"
+                            },
+                            "tipo_irpf": {
+                                "type": "number",
+                                "description": "Tipo IRPF (optional)"
+                            },
                             "warnings": {
                                 "type": "array",
                                 "description": "Optional warnings or notes associated with the payroll",
@@ -1222,6 +1242,32 @@ class ValeriaAgent:
                                 warnings_list = emp_info.get('warnings') or []
                                 warnings_text = json.dumps(warnings_list, ensure_ascii=False) if warnings_list else None
 
+                                def _decimal_or_default(value, default: Decimal = Decimal("0.00")) -> Decimal:
+                                    if value is None:
+                                        return default
+                                    if isinstance(value, Decimal):
+                                        return value
+                                    try:
+                                        return Decimal(str(value))
+                                    except Exception:
+                                        return default
+
+                                prorrata_pagas_extra = emp_info.get('prorrata_pagas_extra')
+                                if prorrata_pagas_extra is None:
+                                    prorrata_pagas_extra = totals.get('prorrata_pagas_extra')
+                                base_cc = emp_info.get('base_cc')
+                                if base_cc is None:
+                                    base_cc = totals.get('base_cc')
+                                base_at_ep = emp_info.get('base_at_ep')
+                                if base_at_ep is None:
+                                    base_at_ep = totals.get('base_at_ep')
+                                base_irpf = emp_info.get('base_irpf')
+                                if base_irpf is None:
+                                    base_irpf = totals.get('base_irpf')
+                                tipo_irpf = emp_info.get('tipo_irpf')
+                                if tipo_irpf is None:
+                                    tipo_irpf = totals.get('tipo_irpf')
+
                                 payroll = Payroll(
                                     employee_id=employee.id,
                                     periodo=periodo_data or {},
@@ -1229,6 +1275,11 @@ class ValeriaAgent:
                                     deduccion_total=totals.get('deduccion_total'),
                                     aportacion_empresa_total=totals.get('aportacion_empresa_total'),
                                     liquido_a_percibir=totals.get('liquido_a_percibir'),
+                                    prorrata_pagas_extra=_decimal_or_default(prorrata_pagas_extra),
+                                    base_cc=_decimal_or_default(base_cc),
+                                    base_at_ep=_decimal_or_default(base_at_ep),
+                                    base_irpf=_decimal_or_default(base_irpf),
+                                    tipo_irpf=_decimal_or_default(tipo_irpf),
                                     warnings=warnings_text
                                 )
                                 self.session.add(payroll)
@@ -2480,7 +2531,8 @@ class ValeriaAgent:
             employee_id: Employee ID
             periodo: Dict with keys like {"desde": "...", "hasta": "...", "dias": int}
             **kwargs: Optional totals (devengo_total, deduccion_total, aportacion_empresa_total,
-                     liquido_a_percibir), warnings (list[str] or str), and optional line items
+                     liquido_a_percibir, prorrata_pagas_extra, base_cc, base_at_ep, base_irpf, tipo_irpf),
+                     warnings (list[str] or str), and optional line items
                      (devengo_items, deduccion_items, aportacion_empresa_items).
 
         Returns:
@@ -2529,6 +2581,16 @@ class ValeriaAgent:
             else:
                 warnings_text = None
 
+            def _decimal_or_default(value, default: Decimal = Decimal("0.00")) -> Decimal:
+                if value is None:
+                    return default
+                if isinstance(value, Decimal):
+                    return value
+                try:
+                    return Decimal(str(value))
+                except Exception:
+                    return default
+
             payroll = Payroll(
                 employee_id=employee_id,
                 periodo=periodo_payload,
@@ -2536,6 +2598,11 @@ class ValeriaAgent:
                 deduccion_total=kwargs.get('deduccion_total'),
                 aportacion_empresa_total=kwargs.get('aportacion_empresa_total'),
                 liquido_a_percibir=kwargs.get('liquido_a_percibir'),
+                prorrata_pagas_extra=_decimal_or_default(kwargs.get('prorrata_pagas_extra')),
+                base_cc=_decimal_or_default(kwargs.get('base_cc')),
+                base_at_ep=_decimal_or_default(kwargs.get('base_at_ep')),
+                base_irpf=_decimal_or_default(kwargs.get('base_irpf')),
+                tipo_irpf=_decimal_or_default(kwargs.get('tipo_irpf')),
                 warnings=warnings_text
             )
 
@@ -2553,21 +2620,53 @@ class ValeriaAgent:
                 for item in items:
                     if not isinstance(item, dict):
                         continue
-                    concepto = item.get('concepto')
-                    importe = item.get('importe')
-                    if concepto is None or importe is None:
+                    concept = item.get('concept')
+                    if concept is None:
+                        concept = item.get('concepto')
+                    amount = item.get('amount')
+                    if amount is None:
+                        amount = item.get('importe')
+                    if concept is None or amount is None:
                         continue
 
-                    base_value = item.get('base')
-                    tipo_value = item.get('tipo')
+                    is_taxable_income = item.get('is_taxable_income')
+                    if is_taxable_income is None and item.get('tributa_irpf') is not None:
+                        is_taxable_income = item.get('tributa_irpf')
+                    is_taxable_ss = item.get('is_taxable_ss')
+                    if is_taxable_ss is None and item.get('cotiza_ss') is not None:
+                        is_taxable_ss = item.get('cotiza_ss')
+                    is_sickpay = item.get('is_sickpay')
+                    is_in_kind = item.get('is_in_kind')
+                    if is_in_kind is None and item.get('en_especie') is not None:
+                        is_in_kind = item.get('en_especie')
+                    is_pay_advance = item.get('is_pay_advance')
+                    is_seizure = item.get('is_seizure')
+
+                    def _bool_or_default(value, default: bool = False) -> bool:
+                        if value is None:
+                            return default
+                        if isinstance(value, bool):
+                            return value
+                        if isinstance(value, (int, float, Decimal)):
+                            return bool(value)
+                        raw = str(value).strip().lower()
+                        if raw in {"true", "t", "1", "yes", "y"}:
+                            return True
+                        if raw in {"false", "f", "0", "no", "n"}:
+                            return False
+                        return default
 
                     payroll_line = PayrollLine(
                         payroll_id=payroll.id,
                         category=category,
-                        concepto=concepto,
-                        importe=Decimal(str(importe)),
-                        base=Decimal(str(base_value)) if base_value is not None else None,
-                        tipo=Decimal(str(tipo_value)) if tipo_value is not None else None,
+                        concept=str(concept),
+                        amount=Decimal(str(amount)),
+                        is_taxable_income=_bool_or_default(is_taxable_income),
+                        is_taxable_ss=_bool_or_default(is_taxable_ss),
+                        is_sickpay=_bool_or_default(is_sickpay),
+                        is_in_kind=_bool_or_default(is_in_kind),
+                        is_pay_advance=_bool_or_default(is_pay_advance),
+                        is_seizure=_bool_or_default(is_seizure),
                     )
                     self.session.add(payroll_line)
                     line_count += 1
@@ -2660,6 +2759,11 @@ class ValeriaAgent:
                 'deduccion_total',
                 'aportacion_empresa_total',
                 'liquido_a_percibir',
+                'prorrata_pagas_extra',
+                'base_cc',
+                'base_at_ep',
+                'base_irpf',
+                'tipo_irpf',
                 'warnings'
             ]
 

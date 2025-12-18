@@ -5,9 +5,19 @@ Database connection management and utility functions.
 These functions are used at runtime by the application.
 """
 
+from __future__ import annotations
+
 import os
-from typing import Optional
-from sqlalchemy import create_engine
+import re
+from calendar import monthrange
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Optional, Sequence
+
+from sqlalchemy import create_engine, func
+from sqlalchemy.orm import Session, sessionmaker
+
+from core.models import Client, ClientLocation, Employee, EmployeePeriod, Payroll, PayrollLine
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -32,6 +42,14 @@ def create_prod_engine(database_url: str = None, echo: bool = True):
     print(f"Connecting to production database at: {database_url}")
     engine = create_engine(url=database_url, echo=echo)
     return engine
+
+
+def get_session(engine=None, echo: bool = False) -> Session:
+    """Create a SQLAlchemy session bound to the given engine (or default engine)."""
+    if engine is None:
+        engine = create_database_engine(echo=echo)
+    SessionLocal = sessionmaker(bind=engine)
+    return SessionLocal()
 
 
 # Document Storage Utilities
@@ -159,3 +177,279 @@ BASIC_NOMINA_CONCEPTS = [
     {'concept_code': '700', 'short_desc': 'IRPF', 'tributa_irpf': False, 'cotiza_ss': False, 'default_group': 'deduccion'},
     {'concept_code': '730', 'short_desc': 'SS Trabajador', 'tributa_irpf': False, 'cotiza_ss': False, 'default_group': 'deduccion'}
 ]
+
+
+# ============================================================================
+# Query endpoints
+# ============================================================================
+
+_ISO_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _parse_date_str(value: str) -> date:
+    value = value.strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    # Fallback: try ISO parser for datetimes like 2025-11-01T00:00:00Z
+    try:
+        from dateutil.parser import isoparse
+        return isoparse(value).date()
+    except Exception as e:  # pragma: no cover
+        raise ValueError(f"Unsupported date format: {value}") from e
+
+
+def _parse_period_iso(period_iso: str) -> tuple[date, date]:
+    """
+    Parse a period input into (start_date, end_date).
+
+    Supported inputs:
+    - 'YYYY-MM' (month): expands to first/last day of month.
+    - 'YYYY-MM-DD' or 'DD-MM-YYYY' or 'DD/MM/YYYY' (single date): start=end.
+    - 'start/end' or 'start to end' or 'start → end': date range.
+    """
+    if not period_iso:
+        raise ValueError("period_iso is required")
+
+    raw = period_iso.strip()
+    if _ISO_MONTH_RE.match(raw):
+        year, month = map(int, raw.split("-"))
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        return start, end
+
+    for sep in ("/", "→", " to "):
+        if sep in raw:
+            parts = [p.strip() for p in raw.split(sep) if p.strip()]
+            if len(parts) == 2:
+                start = _parse_date_str(parts[0])
+                end = _parse_date_str(parts[1])
+                return (start, end) if start <= end else (end, start)
+
+    single = _parse_date_str(raw)
+    return single, single
+
+
+def list_employee_ssns_for_company_period(
+    session: Session,
+    period_iso: str,
+    company_ssn: str,  # Note: This is actually the CCC (Código Cuenta Cotización)
+) -> list[str]:
+    """
+    Return distinct employee SSNs for employees with any EmployeePeriod overlapping
+    the given period and company location.
+
+    Args:
+        session: SQLAlchemy session.
+        period_iso: Period string in ISO-ish format (see _parse_period_iso).
+        company_ssn: Company location's CCC (ClientLocation.ccc_ss).
+    """
+    period_start, period_end = _parse_period_iso(period_iso)
+
+    location = session.query(ClientLocation).filter(ClientLocation.ccc_ss == company_ssn).first()
+    if not location:
+        return []
+
+    rows = (
+        session.query(Employee.ss_number)
+        .join(EmployeePeriod, Employee.id == EmployeePeriod.employee_id)
+        .filter(
+            EmployeePeriod.location_id == location.id,
+            EmployeePeriod.period_begin_date <= period_end,
+            func.coalesce(EmployeePeriod.period_end_date, period_end) >= period_start,
+            Employee.ss_number.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    return [r[0] for r in rows if r[0]]
+
+
+def get_payroll_line_aggregates(
+    session: Session,
+    employee_ssn: str,
+    company_ssn: str,  # Note: This is actually the CCC (Código Cuenta Cotización)
+    period_iso: str,
+    concepto_filter: Optional[str] = None,
+    category_type: Optional[str] = None,
+) -> dict:
+    """
+    Aggregate payroll line totals (sum of amount) for an employee/company location/period.
+
+    Args:
+        session: SQLAlchemy session.
+        employee_ssn: Employee Social Security number (Employee.ss_number).
+        company_ssn: Company location's CCC (ClientLocation.ccc_ss).
+        period_iso: Period string in ISO-ish format.
+        concepto_filter: Optional substring filter on PayrollLine.concept (case-insensitive).
+        category_type: Optional category filter: 'deduccion', 'devengo', 'aportacion empresa'
+                       (spaces/underscore tolerated).
+
+    Returns:
+        Dict with totals by category and overall total.
+    """
+    period_start, period_end = _parse_period_iso(period_iso)
+
+    employee = session.query(Employee).filter(Employee.ss_number == employee_ssn).first()
+    location = session.query(ClientLocation).filter(ClientLocation.ccc_ss == company_ssn).first()
+    if not employee or not location:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+
+    # Ensure employee has a period for this location overlapping the requested period.
+    has_company_period = (
+        session.query(EmployeePeriod.id)
+        .filter(
+            EmployeePeriod.employee_id == employee.id,
+            EmployeePeriod.location_id == location.id,
+            EmployeePeriod.period_begin_date <= period_end,
+            func.coalesce(EmployeePeriod.period_end_date, period_end) >= period_start,
+        )
+        .first()
+    )
+    if not has_company_period:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+
+    # Pull payrolls for employee; filter by period overlap in Python due to mixed date formats.
+    payroll_rows: Sequence[tuple[int, dict]] = (
+        session.query(Payroll.id, Payroll.periodo)
+        .filter(Payroll.employee_id == employee.id)
+        .all()
+    )
+    matching_payroll_ids: list[int] = []
+    for payroll_id, periodo in payroll_rows:
+        if not isinstance(periodo, dict):
+            continue
+        desde = periodo.get("desde")
+        hasta = periodo.get("hasta") or desde
+        if not desde:
+            continue
+        try:
+            pay_start = _parse_date_str(str(desde))
+            pay_end = _parse_date_str(str(hasta)) if hasta else pay_start
+        except Exception:
+            continue
+        if pay_start <= period_end and pay_end >= period_start:
+            matching_payroll_ids.append(payroll_id)
+
+    if not matching_payroll_ids:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+
+    query = (
+        session.query(PayrollLine.category, func.sum(PayrollLine.amount))
+        .filter(PayrollLine.payroll_id.in_(matching_payroll_ids))
+    )
+
+    if concepto_filter:
+        query = query.filter(PayrollLine.concept.ilike(f"%{concepto_filter.strip()}%"))
+
+    normalized_category = None
+    if category_type:
+        normalized_category = category_type.strip().lower().replace(" ", "_")
+        if normalized_category == "aportacion_empresa" or normalized_category == "aportacionempresa":
+            normalized_category = "aportacion_empresa"
+        query = query.filter(PayrollLine.category == normalized_category)
+
+    query = query.group_by(PayrollLine.category)
+    results = query.all()
+
+    totals: dict[str, Decimal] = {}
+    total_importe = Decimal("0.00")
+    for cat, amount in results:
+        amount = amount or Decimal("0.00")
+        totals[str(cat)] = amount
+        total_importe += amount
+
+    # If a category was requested but no rows matched, include empty category with 0.
+    if normalized_category and normalized_category not in totals:
+        totals[normalized_category] = Decimal("0.00")
+
+    return {
+        "employee_ssn": employee_ssn,
+        "company_ssn": company_ssn,
+        "period": period_iso,
+        "concepto_filter": concepto_filter,
+        "category_type": normalized_category,
+        "totals": totals,
+        "total_importe": total_importe,
+        "payroll_count": len(matching_payroll_ids),
+    }
+
+
+def get_employee_devengo_total(
+    session: Session,
+    employee_ssn: str,
+    company_ssn: str,  # Note: This is actually the CCC (Código Cuenta Cotización)
+    period_iso: str,
+) -> dict:
+    """
+    Aggregate sum of Payroll.devengo_total for an employee/company location/period.
+
+    Args:
+        session: SQLAlchemy session.
+        employee_ssn: Employee Social Security number (Employee.ss_number).
+        company_ssn: Company location's CCC (ClientLocation.ccc_ss).
+        period_iso: Period string in ISO-ish format.
+
+    Returns:
+        Dict with total devengo and payroll count.
+    """
+    period_start, period_end = _parse_period_iso(period_iso)
+
+    employee = session.query(Employee).filter(Employee.ss_number == employee_ssn).first()
+    location = session.query(ClientLocation).filter(ClientLocation.ccc_ss == company_ssn).first()
+    if not employee or not location:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+
+    has_company_period = (
+        session.query(EmployeePeriod.id)
+        .filter(
+            EmployeePeriod.employee_id == employee.id,
+            EmployeePeriod.location_id == location.id,
+            EmployeePeriod.period_begin_date <= period_end,
+            func.coalesce(EmployeePeriod.period_end_date, period_end) >= period_start,
+        )
+        .first()
+    )
+    if not has_company_period:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+
+    payroll_rows: Sequence[tuple[int, dict, Optional[Decimal]]] = (
+        session.query(Payroll.id, Payroll.periodo, Payroll.devengo_total)
+        .filter(Payroll.employee_id == employee.id)
+        .all()
+    )
+    matching_payroll_ids: list[int] = []
+    for payroll_id, periodo, _dev in payroll_rows:
+        if not isinstance(periodo, dict):
+            continue
+        desde = periodo.get("desde")
+        hasta = periodo.get("hasta") or desde
+        if not desde:
+            continue
+        try:
+            pay_start = _parse_date_str(str(desde))
+            pay_end = _parse_date_str(str(hasta)) if hasta else pay_start
+        except Exception:
+            continue
+        if pay_start <= period_end and pay_end >= period_start:
+            matching_payroll_ids.append(payroll_id)
+
+    if not matching_payroll_ids:
+        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+
+    devengo_sum = (
+        session.query(func.sum(Payroll.devengo_total))
+        .filter(Payroll.id.in_(matching_payroll_ids))
+        .scalar()
+    ) or Decimal("0.00")
+
+    return {
+        "employee_ssn": employee_ssn,
+        "company_ssn": company_ssn,
+        "period": period_iso,
+        "devengo_total": devengo_sum,
+        "payroll_count": len(matching_payroll_ids),
+    }
+

@@ -1,0 +1,67 @@
+[
+    {
+    "conceptCode": 1, 
+    "conceptType": "Fijo", 
+    "description": "Salario Base",
+    "payConceptAmount": 112.78, 
+    "payConceptUnits": 8.0, 
+    "payConceptUnitsAmount": 14.1, 
+    "indMonthlyPayCollection": true, 
+    "indExtraPayCollection": false, 
+    "conceptCollectionTypeID": 1, 
+    "conceptCollectionTypeDesc": "T - Total", 
+    "isDiscount": false
+    }, 
+    {
+    "conceptCode": 50, 
+    "conceptType": "Fijo", 
+    "description": "Ajuste SMI", 
+    "payConceptAmount": 53.4, 
+    "payConceptUnits": 8.0, 
+    "payConceptUnitsAmount": 6.68, 
+    "indMonthlyPayCollection": true, 
+    "indExtraPayCollection": false, 
+    "conceptCollectionTypeID": 1, 
+    "conceptCollectionTypeDesc": "T - Total", 
+    "isDiscount": false
+    }, 
+    {
+    "conceptCode": 60, 
+    "conceptType": "Fijo", 
+    "description": "Plus Compensable/Absorbible", 
+    "payConceptAmount": 18.5, 
+    "payConceptUnits": 8.0, 
+    "payConceptUnitsAmount": 2.31, 
+    "indMonthlyPayCollection": true, 
+    "indExtraPayCollection": false, 
+    "conceptCollectionTypeID": 1, 
+    "conceptCollectionTypeDesc": "T - Total", 
+    "isDiscount": false
+    }, 
+    {
+    "conceptCode": 301, 
+    "conceptType": "Fijo", 
+    "description": "PP Extra", 
+    "payConceptAmount": 27.7, 
+    "payConceptUnits": 8.0, 
+    "payConceptUnitsAmount": 3.46, 
+    "indMonthlyPayCollection": true,
+    "indExtraPayCollection": false, 
+    "conceptCollectionTypeID": 1, 
+    "conceptCollectionTypeDesc": "T - Total", 
+    "isDiscount": false
+    }, 
+    {
+    "conceptCode": 1004, 
+    "conceptType": "Fijo", 
+    "description": "Antigüedad", 
+    "payConceptAmount": 0.0, 
+    "payConceptUnits": 0.0, 
+    "payConceptUnitsAmount": 0.0, 
+    "indMonthlyPayCollection": true, 
+    "indExtraPayCollection": false, 
+    "conceptCollectionTypeID": 1, 
+    "conceptCollectionTypeDesc": "T - Total", 
+    "isDiscount": false
+    }
+]

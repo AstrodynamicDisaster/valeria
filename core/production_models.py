@@ -6,9 +6,13 @@ These models are READ-ONLY and should never be used for writes.
 """
 
 import os
-from sqlalchemy import Column, String, Date, Numeric, DateTime, create_engine
+from uuid import uuid4
+
+from sqlalchemy import Column, Date, DateTime, Numeric, String, create_engine
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import declarative_base, sessionmaker
+
+from core.models import Client, ClientLocation
 
 ProductionBase = declarative_base()
 
@@ -48,6 +52,38 @@ class ProductionCompany(ProductionBase):
 
     def __repr__(self):
         return f"<ProductionCompany(id={self.id}, name={self.name}, cif={self.cif})>"
+
+class ProductionLocation(ProductionBase):
+    """Read-only model for production company locations table.
+
+    Based on the columns in `location_table_example.csv`.
+    """
+
+    __tablename__ = "company_locations"
+
+    id = Column(Numeric, primary_key=True)
+    address = Column(String)
+    postal_code = Column(String)
+    city = Column(String)
+
+    company_id = Column(String, nullable=False)
+
+    deleted_at = Column(DateTime)
+    created_at = Column(DateTime)
+
+    # Social Security / CCC for the location
+    ccc = Column(String)
+
+    country = Column(String)
+    red_authorisation_status = Column(String)
+    agreement_id = Column(Numeric)
+    regime = Column(String)
+    professional_group = Column(String)
+    municipality = Column(String)
+    location_address_id = Column(String)
+
+    def __repr__(self):
+        return f"<ProductionLocation(id={self.id}, company_id={self.company_id}, ccc={self.ccc})>"
 
 
 class ProductionEmployee(ProductionBase):
@@ -126,7 +162,7 @@ def create_production_session(engine=None):
 
 def get_production_company_by_cif(session, cif: str) -> ProductionCompany:
     """Get company from production by CIF"""
-    return session.query(ProductionCompany).filter_by(cif=cif).first()
+    return session.query(ProductionCompany).filter_by(cif=cif).all()
 
 
 def get_production_company_by_id(session, company_id: str) -> ProductionCompany:
@@ -142,6 +178,125 @@ def get_production_employee_by_identity_card(session, identity_card: str) -> Pro
 def list_production_employees_for_company(session, company_id: str):
     """List all employees for a company in production"""
     return session.query(ProductionEmployee).filter_by(company_id=company_id).all()
+
+
+def list_production_locations_for_company(session, company_id: str, include_deleted: bool = False):
+    """List all locations for a company in production."""
+    query = session.query(ProductionLocation).filter_by(company_id=company_id)
+    if not include_deleted:
+        query = query.filter(ProductionLocation.deleted_at.is_(None))
+    return query.all()
+
+
+def _coerce_prod_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in {"true", "t", "1", "yes", "y"}:
+        return True
+    if raw in {"false", "f", "0", "no", "n"}:
+        return False
+    return None
+
+
+def insert_company_locations_into_local_clients(
+    prod_session,
+    cif: str,
+    local_session=None,
+    *,
+    commit: bool = True,
+    skip_existing: bool = True,
+    include_deleted_locations: bool = False,
+):
+    """Insert a production company into local Client and ClientLocation tables.
+
+    Steps:
+    - Fetch the production company with `get_production_company_by_cif`
+    - Create or update ONE Client record (unique by CIF)
+    - Fetch all production locations for that company ID
+    - For each location, create a ClientLocation with the CCC
+    """
+
+    owns_local_session = local_session is None
+    if local_session is None:
+        from core.database import get_session
+
+        local_session = get_session(echo=False)
+
+    try:
+        prod_companies = get_production_company_by_cif(prod_session, cif)
+        if not prod_companies:
+            raise ValueError(f"No production company found for CIF={cif!r}")
+
+        prod_company = prod_companies[0]
+        company_id = prod_company.id
+
+        # Get or create the Client record (one per CIF)
+        client = local_session.query(Client).filter_by(cif=cif).first()
+        if client is None:
+            client = Client(id=uuid4(), cif=cif)
+            local_session.add(client)
+
+        # Update client data from production
+        client.name = prod_company.name
+        client.fiscal_address = prod_company.fiscal_address
+        client.email = prod_company.email
+        client.phone = prod_company.phone
+        client.begin_date = prod_company.begin_date
+        client.managed_by = prod_company.managed_by
+        client.payslips = _coerce_prod_bool(getattr(prod_company, "payslips", None))
+
+        client.legal_repr_first_name = prod_company.legal_repr_first_name
+        client.legal_repr_last_name1 = prod_company.legal_repr_last_name1
+        client.legal_repr_last_name2 = prod_company.legal_repr_last_name2
+        client.legal_repr_nif = prod_company.legal_repr_nif
+        client.legal_repr_role = prod_company.legal_repr_role
+        client.legal_repr_phone = prod_company.legal_repr_phone
+        client.legal_repr_email = prod_company.legal_repr_email
+
+        client.status = prod_company.status
+
+        local_session.flush()  # Ensure client.id is available
+
+        # Get production locations and create ClientLocation records
+        prod_locations = list_production_locations_for_company(
+            prod_session,
+            company_id,
+            include_deleted=include_deleted_locations,
+        )
+
+        locations_created = []
+        for loc in prod_locations:
+            ccc = (loc.ccc or "").strip()
+            if not ccc:
+                continue
+
+            # Check if location already exists
+            existing_location = local_session.query(ClientLocation).filter_by(ccc_ss=ccc).first()
+            if existing_location:
+                if skip_existing:
+                    continue
+                # Update existing location to point to this client
+                existing_location.company_id = client.id
+            else:
+                # Create new location
+                location = ClientLocation(company_id=client.id, ccc_ss=ccc)
+                local_session.add(location)
+                locations_created.append(location)
+
+        if commit:
+            local_session.commit()
+        else:
+            local_session.flush()
+
+        return {"client": client, "locations_created": len(locations_created)}
+    finally:
+        if owns_local_session:
+            local_session.close()
 
 
 if __name__ == "__main__":

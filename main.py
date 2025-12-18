@@ -1,56 +1,83 @@
-import os
-from core.valeria_agent import ValeriaAgent
+import core.a3.tools as a3_tools
+import core.production_models as prod_models
+from scripts.extract_vida_ccc import import_vida_laboral
+from scripts.reprocess_vida_laboral import process_vida_laboral_csv
+import tempfile
+from pathlib import Path
 
-def main():
-    """Example usage"""
-    import argparse
-    from dotenv import load_dotenv
+#CIF = "B42524694" # TEPUY BURGERS SL
+#DNI = "51774361G"
+CIF = "B56222938"  # DANIK
+DNI = "04304917F"
+MONTH = "2025-11"  # November 2025
+START_DATE = "2025-01-01"
+END_DATE = "2025-12-31"
 
-    # Load environment variables from .env file
-    load_dotenv()
+MSJ_FILES =[
+                "/Users/albert/repos/valeria/parsing/fleets/JARVIS_1.msj",
+                "/Users/albert/repos/valeria/parsing/fleets/JARVIS_2.msj",
+                "/Users/albert/repos/valeria/parsing/fleets/JARVIS_3.msj"
+                ]
+PDF_FILES = [
+             "/path/to/first_file.pdf",
+             "/path/to/second_file.pdf"]
 
-    parser = argparse.ArgumentParser(description="ValerIA AI Agent for Spanish Payroll Processing")
-    parser.add_argument("--api-key", help="OpenAI API key (or set OPENAI_API_KEY in .env file)")
-    parser.add_argument("--interactive", action="store_true", help="Run in interactive mode")
+# CONVERT THE PATHS TO ABSOLUTE PATHS
+MSJ_PATHS = [str(Path(path).resolve()) for path in MSJ_FILES]
+PDF_PATHS = [str(Path(path).resolve()) for path in PDF_FILES]
 
-    args = parser.parse_args()
+# CONNECTING TO PRODUCTION
+print("Connecting to production database...")
+session = prod_models.create_production_session()
+print("Connected.")
 
-    # Get API key from argument or environment variable
-    api_key = args.api_key or os.getenv("OPENAI_API_KEY")
+# INSERTING COMPANY LOCATIONS INTO LOCAL DATABASE CLIENTS TABLE
+print(f"Inserting company locations for CIF {CIF} into local clients...")
+prod_models.insert_company_locations_into_local_clients(session, CIF)
+print("Done.")
 
-    if not api_key:
-        print("❌ Error: OpenAI API key not found!")
-        print("   Please either:")
-        print("   1. Set OPENAI_API_KEY in your .env file")
-        print("   2. Use --api-key argument")
-        return
+# CREATE A TEMPORARY DIRECTORY FOR PROCESSING FILES
+# with tempfile.TemporaryDirectory() as temp_dir:
+#     print(f"Using temporary directory: {temp_dir}")
+#     temp_dir_path = str(Path(temp_dir).resolve())
 
-    agent = ValeriaAgent(api_key)
+#     # PARSE MSJ FILE
+#     for msj_file in MSJ_PATHS:
+#         import_vida_laboral(msj_file, temp_dir_path)
 
-    if args.interactive:
-        print("🤖 ValerIA Agent initialized. Type 'quit' to exit.")
-        print("\n📋 I can help you with:")
-        print("   • Import employee data from vida laboral CSV")
-        print("   • Process payroll documents (nominas) from PDF files")
-        print("   • Manage companies, employees, and payroll records")
-        print("   • Generate reports and detect missing payslips")
-        print("\n💡 Examples:")
-        print("   - 'Show me all companies'")
-        print("   - 'Import vida laboral from /path/to/file.csv'")
-        print("   - 'Create a new company called ACME Corp'")
-        print("   - 'List all employees for company X'")
-        print("   - 'Show database statistics'")
+#     # NOW GET THE LIST OF ALL THE CSV FILES GENERATED
+#     csv_files = list(Path(temp_dir_path).glob("*.csv"))
 
-        while True:
-            user_input = input("\n👤 You: ").strip()
-            if user_input.lower() in ['quit', 'exit', 'bye']:
-                break
+#     # PROCESS EACH CSV FILE
+#     for csv_file in csv_files:
+#         result = process_vida_laboral_csv(
+#             csv_path=str(csv_file),
+#             client_identifier=CIF,
+#             create_employees=True
+#         )
 
-            response = agent.run_conversation(user_input)
-            print(f"\n🤖 ValerIA: {response}")
-    else:
-        print("Use --interactive for interactive mode")
+#         if result["success"]:
+#             print(f"Successfully processed {csv_file}")
+#         else:
+#             print(f"Failed to process {csv_file}: {result.get('error', 'Unknown error')}")
+    
 
+# IMPORT EMPLOYEES AND EMPLOYEE PERIODS FROM PRODUCTION DATABASE
 
-if __name__ == "__main__":
-    main()
+# PROCESS PDFS TO EXTRACT PAYSLIPS
+
+# IMPORT REMAINING PAYSLIPS FROM A3
+
+ ## To do this, I need to change the models in the database and implement the mapping from a3 to our models
+
+# ---------------------_TESTING CODE BELOW -----------------------
+
+# Get all payslips for the cif and ccc in the month of november 2025
+
+outdict = a3_tools.get_payslip_employee(CIF, DNI, MONTH)
+
+# Transform the dict to a json file and save it
+import json
+with open("payslip_data.json", "w") as f:
+    json.dump(outdict, f, indent=4)
+print("Payslip data saved to payslip_data.json")

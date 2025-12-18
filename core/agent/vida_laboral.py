@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from core.agent.state import VidaLaboralContext
 from core.agent.utils import parse_date, parse_spanish_name
-from core.models import Employee, EmployeePeriod
+from core.models import ClientLocation, Employee, EmployeePeriod
 
 
 def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: VidaLaboralContext) -> None:
@@ -29,6 +29,7 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     begin_date = parse_date(row.get('f_efecto_alta'))
     ss_number = row.get('naf', '').strip() or None
+    location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Try to find existing employee using priority-based matching
     employee = None
@@ -61,12 +62,19 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
         print(f"⚠️  Skipping ALTA for {row['nombre']} ({documento}) - employee not found")
         return
 
-    # Merge: if there's already an open/overlapping ALTA for this employee+company, reuse it
+    # Get or create ClientLocation for this CCC
+    location = session.query(ClientLocation).filter_by(ccc_ss=location_ccc).first()
+    if not location:
+        location = ClientLocation(company_id=client_id, ccc_ss=location_ccc)
+        session.add(location)
+        session.flush()
+
+    # Merge: if there's already an open/overlapping ALTA for this employee+location, reuse it
     existing_alta = None
     if begin_date:
         existing_alta = session.query(EmployeePeriod).filter(
             EmployeePeriod.employee_id == employee.id,
-            EmployeePeriod.company_id == client_id,
+            EmployeePeriod.location_id == location.id,
             EmployeePeriod.period_type == 'alta',
             or_(
                 EmployeePeriod.period_end_date.is_(None),
@@ -89,7 +97,7 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
     # Create the ALTA period
     period = EmployeePeriod(
         employee_id=employee.id,
-        company_id=client_id,
+        location_id=location.id,
         period_begin_date=begin_date,
         period_end_date=None,
         period_type='alta',
@@ -115,6 +123,7 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
         first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     ss_number = row.get('naf', '').strip() or None
+    location_ccc = row.get('ccc', '').strip()  # CCC for the company location
     end_date = parse_date(row.get('f_real_sit'))
 
     # Find employee using priority-based matching
@@ -146,10 +155,17 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
             print(f"⚠️  Skipping BAJA for {row['nombre']} ({documento}) - employee not found")
             return
 
-    # Find active ALTA period for this employee and company
+    # Get or create ClientLocation for this CCC
+    location = session.query(ClientLocation).filter_by(ccc_ss=location_ccc).first()
+    if not location:
+        location = ClientLocation(company_id=client_id, ccc_ss=location_ccc)
+        session.add(location)
+        session.flush()
+
+    # Find active ALTA period for this employee and location
     active_period = session.query(EmployeePeriod).filter_by(
         employee_id=employee.id,
-        company_id=client_id,
+        location_id=location.id,
         period_type='alta',
         period_end_date=None
     ).order_by(EmployeePeriod.period_begin_date.desc()).first()
@@ -170,7 +186,7 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
     begin_date = parse_date(row.get('f_real_alta'))
     period = EmployeePeriod(
         employee_id=employee.id,
-        company_id=client_id,
+        location_id=location.id,
         period_begin_date=begin_date,
         period_end_date=end_date,
         period_type='baja',
@@ -190,6 +206,7 @@ def handle_vacacion(session: Session, client_id: str, row: Dict[str, str], conte
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
     ss_number = row.get('naf', '').strip() or None
+    location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Find employee using priority-based matching
     employee = None
@@ -213,10 +230,17 @@ def handle_vacacion(session: Session, client_id: str, row: Dict[str, str], conte
         print(f"⚠️  Skipping VAC.RETRIB.NO for {row['nombre']} ({documento}): missing dates")
         return
 
+    # Get or create ClientLocation for this CCC
+    location = session.query(ClientLocation).filter_by(ccc_ss=location_ccc).first()
+    if not location:
+        location = ClientLocation(company_id=client_id, ccc_ss=location_ccc)
+        session.add(location)
+        session.flush()
+
     # Create vacation period using EmployeePeriod model
     vacation_period = EmployeePeriod(
         employee_id=employee.id,
-        company_id=client_id,
+        location_id=location.id,
         period_begin_date=vacation_start,
         period_end_date=vacation_end,
         period_type='vacaciones',

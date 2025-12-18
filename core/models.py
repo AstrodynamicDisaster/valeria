@@ -27,7 +27,6 @@ class Client(Base):
     fiscal_address = Column(Text)
     email = Column(Text)
     phone = Column(Text)
-    ccc_ss = Column(Text, unique=True, nullable=False)  # Código Cuenta Cotización Seguridad Social (local only)
     begin_date = Column(DateTime(timezone=True))
     managed_by = Column(Text)
     payslips = Column(Boolean, default=True)
@@ -48,9 +47,25 @@ class Client(Base):
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
-    employee_periods = relationship("EmployeePeriod", back_populates="client", cascade="all, delete-orphan")
+    locations = relationship("ClientLocation", back_populates="client", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="client", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="client", cascade="all, delete-orphan")
+
+
+class ClientLocation(Base):
+    """Client company locations with unique CCC (Código Cuenta Cotización)"""
+    __tablename__ = 'client_locations'
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    ccc_ss = Column(Text, unique=True, nullable=False)  # Código Cuenta Cotización / NAF
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    # Relationships
+    client = relationship("Client", back_populates="locations")
+    employee_periods = relationship("EmployeePeriod", back_populates="location", cascade="all, delete-orphan")
 
 
 class Employee(Base):
@@ -93,7 +108,7 @@ class EmployeePeriod(Base):
 
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
-    company_id = Column(UUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    location_id = Column(Integer, ForeignKey('client_locations.id', ondelete='CASCADE'), nullable=False)
 
     # Period dates
     period_begin_date = Column(Date, nullable=False)
@@ -104,7 +119,7 @@ class EmployeePeriod(Base):
     tipo_contrato = Column(Text)  # Contract type code for ALTA/BAJA periods
 
     # Employment details (can change per period)
-    salary = Column(Numeric(10, 2))  # Salary for this period
+    salary = Column(Numeric(12, 2))  # Salary for this period
     role = Column(Text)  # Job role for this period
 
     notes = Column(Text)  # Additional information
@@ -114,7 +129,7 @@ class EmployeePeriod(Base):
 
     # Relationships
     employee = relationship("Employee", back_populates="periods")
-    client = relationship("Client", back_populates="employee_periods")
+    location = relationship("ClientLocation", back_populates="employee_periods")
 
 
 class NominaConcept(Base):
@@ -178,10 +193,15 @@ class Payroll(Base):
     periodo = Column(JSON, nullable=False)
 
     # Totals captured explicitly to avoid nested JSON
-    devengo_total = Column(Numeric(10, 2), nullable=True)
-    deduccion_total = Column(Numeric(10, 2), nullable=True)
-    aportacion_empresa_total = Column(Numeric(10, 2), nullable=True)
-    liquido_a_percibir = Column(Numeric(10, 2), nullable=True)
+    devengo_total = Column(Numeric(12, 2), nullable=False)
+    deduccion_total = Column(Numeric(12, 2), nullable=False)
+    aportacion_empresa_total =  Column(Numeric(12, 2), nullable=False)
+    liquido_a_percibir =  Column(Numeric(12, 2), nullable=False)
+    prorrata_pagas_extra =  Column(Numeric(12, 2), nullable=False)
+    base_cc =  Column(Numeric(12, 2), nullable=False)
+    base_at_ep =  Column(Numeric(12, 2), nullable=False)
+    base_irpf =  Column(Numeric(12, 2), nullable=False)
+    tipo_irpf =  Column(Numeric(5, 2), nullable=False)
 
     # Free-form warnings list serialized as text (JSON string or newline separated)
     warnings = Column(Text)
@@ -203,10 +223,15 @@ class PayrollLine(Base):
     id = Column(Integer, primary_key=True)
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'), nullable=False)
     category = Column(String, nullable=False)  # devengo, deduccion, aportacion_empresa
-    concepto = Column(Text, nullable=False)
-    importe = Column(Numeric(10, 2), nullable=False)
-    base = Column(Numeric(10, 2))
-    tipo = Column(Numeric(6, 2))
+    concept = Column(Text, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    is_taxable_income = Column(Boolean, nullable=False)
+    is_taxable_ss = Column(Boolean, nullable=False)
+    is_sickpay = Column(Boolean, nullable=False)
+    is_in_kind = Column(Boolean, nullable=False)
+    is_pay_advance = Column(Boolean, nullable=False)
+    is_seizure = Column(Boolean, nullable=False)
+    
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -299,7 +324,7 @@ def get_employee_company(employee_id: int, session) -> str:
         EmployeePeriod.employee_id == employee_id
     ).order_by(desc(EmployeePeriod.period_begin_date)).first()
 
-    return period.company_id if period else None
+    return period.location.company_id if period else None
 
 
 def get_active_employee_period(employee_id: int, session) -> EmployeePeriod:
