@@ -10,15 +10,15 @@ class ClassificationResult(BaseModel):
     """
     Result of document classification.
     
-    Represents the classification of a document as either a payslip or settlement.
+    Represents the classification of a document as payslip, settlement, payslip+settlement, or other.
     """
     reasoning: str = Field(
         ...,
         description="Brief explanation of why this classification was chosen"
     )
-    document_type: Literal["payslip", "settlement", "other"] = Field(
+    document_type: Literal["payslip", "settlement", "payslip+settlement", "other"] = Field(
         ...,
-        description="Type of document: 'payslip', 'settlement' or 'other'"
+        description="Type of document: 'payslip', 'settlement', 'payslip+settlement' or 'other'"
     )
     confidence: Literal["high", "medium", "low"] = Field(
         ...,

@@ -48,6 +48,10 @@ GEMINI_PRICING = {
         "input": 0.002,  # $2.00 per 1M tokens = $0.002 per 1K tokens (prompts ≤ 200k)
         "output": 0.012,  # $12.00 per 1M tokens = $0.012 per 1K tokens (output includes thinking tokens)
     },
+    "gemini-3-flash-preview": {
+        "input": 0.0005,  # $0.50 per 1M tokens = $0.0005 per 1K tokens
+        "output": 0.003,  # $3.00 per 1M tokens = $0.003 per 1K tokens
+    },
 }
 
 

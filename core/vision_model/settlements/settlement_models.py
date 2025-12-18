@@ -1,11 +1,7 @@
-"""
-Pydantic models for settlement (finiquito) data structure.
-
-These models represent the structured data extracted from Spanish termination settlements.
-"""
-
+import logging
 from typing import List, Optional
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Empresa(BaseModel):
@@ -20,12 +16,59 @@ class Trabajador(BaseModel):
     dni: Optional[str] = Field(None, description="Employee ID (DNI/NIE)")
 
 
+class ItemType(BaseModel):
+    """
+    Metadata about a settlement item.
+    Provides additional classification information for settlement items.
+    """
+    
+    ind_is_especie: Optional[bool] = Field(
+        None,
+        description="True if in-kind (especie), False if monetary (dineraria). Most items are False."
+    )
+    ind_is_IT_IL: Optional[bool] = Field(
+        None,
+        description="True if corresponds to IT/IL (Incapacidad Temporal/Invalidez Laboral)"
+    )
+    ind_is_anticipo: Optional[bool] = Field(
+        None,
+        description="True if this item is an advance payment (anticipo)"
+    )
+    ind_is_embargo: Optional[bool] = Field(
+        None,
+        description="True if this item is a garnishment/attachment (embargo)"
+    )
+    ind_is_exento_IRPF: Optional[bool] = Field(
+        None,
+        description="True if this item is exempt from IRPF withholding"
+    )
+    ind_cotiza_ss: Optional[bool] = Field(
+        None,
+        description="True if this item contributes to Social Security (cotiza a la Seguridad Social)"
+    )
+
+
 class SettlementItem(BaseModel):
     """Settlement item (liquidación item)."""
-    concepto: str = Field(..., description="Concept name (e.g., 'Vacaciones', 'Paga extra', etc.)")
+    concepto_raw: str = Field(..., description="Raw concept name as found in the document")
+    concepto_standardized: str = Field(..., description="Standardized concept name (e.g., 'VACACIONES NO DISFRUTADAS', 'PAGA EXTRA PRORRATEADA', etc.)")
     importe: float = Field(..., description="Amount in euros")
-    dias: Optional[int] = Field(None, description="Number of days (if applicable)")
+    tipo: Optional[float] = Field(None, description="Percentage rate if applicable (e.g., IRPF retention)")
+    dias: Optional[float] = Field(None, description="Number of days (if applicable)")
     base: Optional[float] = Field(None, description="Base amount for calculation (if applicable)")
+    item_type: Optional[ItemType] = Field(
+        None,
+        description="Additional metadata about this settlement item (perception type, IT/IL, etc.)"
+    )
+    
+    @field_validator('importe', mode='before')
+    @classmethod
+    def coerce_importe(cls, v):
+        """Convert None to 0.0 to avoid validation errors."""
+        if v is None:
+            logging.warning(f"Value is None for {cls.__name__}.{v}")
+            return 0.0
+        return v
 
 
 class SettlementData(BaseModel):

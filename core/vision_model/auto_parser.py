@@ -28,7 +28,9 @@ from core.vision_model.document_classifier import DocumentClassifier
 
 class UnsupportedDocumentTypeError(Exception):
     """Raised when a document is classified as an unsupported type (e.g., 'other')."""
-    pass
+    def __init__(self, message: str, classification_time: float = 0.0):
+        super().__init__(message)
+        self.classification_time = classification_time
 
 
 class AutoParser:
@@ -59,9 +61,10 @@ class AutoParser:
             parsing_model: Model name for parsing (defaults to classification_model)
             api_key: API key (for OpenAI) or None (uses env var or Vertex AI)
             project: Google Cloud project ID (for Gemini with Vertex AI)
-            location: Google Cloud location (for Gemini with Vertex AI)
+            location: Google Cloud location (for Gemini with Vertex AI). 
+                     Will be forced to "global" for gemini-3 models.
         """
-        # Initialize classifier
+        # Initialize classifier (it will force location to "global" for gemini-3 models internally)
         self.classifier = DocumentClassifier(
             provider=classification_provider,
             model=classification_model,
@@ -75,6 +78,7 @@ class AutoParser:
         self.parsing_model = parsing_model or classification_model
         self.api_key = api_key
         self.project = project
+        # Store the original location (parsers will force to "global" for gemini-3 internally)
         self.location = location
         
         # Lazy initialization of parsers
@@ -142,15 +146,22 @@ class AutoParser:
         document_type = classification_info["document_type"]
         
         # Step 2: Route to appropriate parser
-        if document_type == "payslip":
+        if document_type == "payslip" or document_type == "payslip+settlement":
+            # Both payslip and payslip+settlement use the payslip parser
+            # payslip+settlement has contains_finiquito=true in the parsed data
             parser = self._get_payslip_parser()
             parsed_data = parser.parse_to_model(pdf_bytes, text_doc)
         elif document_type == "settlement":
             parser = self._get_settlement_parser()
             parsed_data = parser.parse_to_model(pdf_bytes, text_doc)
-        else:  # other
+        elif document_type == "other":
             raise UnsupportedDocumentTypeError(
                 f"Document classified as '{document_type}'. Skipping processing. "
+                f"Reasoning: {classification_info.get('reasoning', 'N/A')}"
+            )
+        else:
+            raise UnsupportedDocumentTypeError(
+                f"Unknown document type '{document_type}'. Skipping processing. "
                 f"Reasoning: {classification_info.get('reasoning', 'N/A')}"
             )
         
@@ -192,17 +203,22 @@ class AutoParser:
             Tuple of (parsed_data, classification_info, usage_info)
             - parsed_data: Either PayslipData or SettlementData
             - classification_info: Dictionary with document_type, confidence, reasoning
-            - usage_info: Dictionary with usage metrics (tokens, etc.) - only for parsing, not classification
+            - usage_info: Dictionary with usage metrics (tokens, etc.) including classification_time_seconds
         """
-        # Classify first
+        import time
+        
+        # Classify first (with timing)
         if not text_doc:
             raise ValueError("text_doc is required for document classification")
         
+        classification_start = time.time()
         classification_info = self.classifier.classify(text_doc)
+        classification_time = time.time() - classification_start
         document_type = classification_info["document_type"]
         
         # Parse with usage info
-        if document_type == "payslip":
+        if document_type == "payslip" or document_type == "payslip+settlement":
+            # Both payslip and payslip+settlement use the payslip parser
             parser = self._get_payslip_parser()
             data_dict, usage_info = parser.parse_with_usage(pdf_bytes, text_doc)
             parsed_data = PayslipData(**data_dict)
@@ -212,11 +228,21 @@ class AutoParser:
             data_dict, usage_info = parser.parse_with_usage(pdf_bytes, text_doc)
             parsed_data = SettlementData(**data_dict)
             parsed_data.verify_and_correct_total()
-        else:  # other
+        elif document_type == "other":
             raise UnsupportedDocumentTypeError(
                 f"Document classified as '{document_type}'. Skipping processing. "
-                f"Reasoning: {classification_info.get('reasoning', 'N/A')}"
+                f"Reasoning: {classification_info.get('reasoning', 'N/A')}",
+                classification_time=classification_time
             )
+        else:
+            raise UnsupportedDocumentTypeError(
+                f"Unknown document type '{document_type}'. Skipping processing. "
+                f"Reasoning: {classification_info.get('reasoning', 'N/A')}",
+                classification_time=classification_time
+            )
+        
+        # Add classification time to usage info
+        usage_info["classification_time_seconds"] = classification_time
         
         return parsed_data, classification_info, usage_info
 

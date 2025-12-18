@@ -248,6 +248,11 @@ class OpenAIPayslipParser(BasePayslipParser):
         return json_str, usage_info
 
 
+def _is_gemini_3_model(model: str) -> bool:
+    """Check if the model is a Gemini 3 model."""
+    return model.startswith("gemini-3")
+
+
 class GeminiPayslipParser(BasePayslipParser):
     """
     Payslip parser using Google's Gemini vision models.
@@ -262,10 +267,10 @@ class GeminiPayslipParser(BasePayslipParser):
         project: str = "valeria-test-474315",
         location: str = "europe-southwest1",
         model: str = "gemini-2.5-pro",
-        temperature: float = 1.0,
+        temperature: float = 0.25,
         top_p: float = 0.95,
         max_output_tokens: int = 65535,
-        thinking_budget: int = 300,
+        thinking_budget: int = 350,
         api_key: Optional[str] = None,
     ):
         if not GEMINI_AVAILABLE:
@@ -275,7 +280,8 @@ class GeminiPayslipParser(BasePayslipParser):
 
         super().__init__(system_prompt)
         self.project = project
-        self.location = location
+        # Force location to "global" for gemini-3 models
+        self.location = "global" if _is_gemini_3_model(model) else location
         self.model = model
         self.temperature = temperature
         self.top_p = top_p
@@ -289,7 +295,7 @@ class GeminiPayslipParser(BasePayslipParser):
             # Check Google Cloud authentication
             self._check_gcloud_authentication()
             self.client = genai.Client(
-                vertexai=True, project=project, location=location
+                vertexai=True, project=project, location=self.location
             )
 
     def _check_gcloud_authentication(self) -> None:
@@ -345,6 +351,8 @@ class GeminiPayslipParser(BasePayslipParser):
             mime_type="application/pdf",
         )
 
+        # print(f"Text PDF: {text_pdf}")
+
         # Build content
         contents = [
             types.Content(
@@ -353,14 +361,20 @@ class GeminiPayslipParser(BasePayslipParser):
                     types.Part.from_text(
                         text="I have this payslip in PDF, can you process it?"
                     ),
-                    types.Part.from_text(
-                        text=f"This is the text of the payslip in raw (for you to help): ```{text_pdf}```"
-                    ),
+                    # types.Part.from_text(
+                    #     text=f"This is the text of the payslip in raw (for you to help): ```{text_pdf}```"
+                    # ),
                     pdf_part,
                 ],
             ),
         ]
 
+        # Configure thinking config based on model version
+        if _is_gemini_3_model(self.model):
+            thinking_config = types.ThinkingConfig(thinking_level="LOW")
+        else:
+            thinking_config = types.ThinkingConfig(thinking_budget=self.thinking_budget)
+        
         # Configure generation
         generate_content_config = types.GenerateContentConfig(
             temperature=self.temperature,
@@ -368,23 +382,20 @@ class GeminiPayslipParser(BasePayslipParser):
             max_output_tokens=self.max_output_tokens,
             safety_settings=self._get_safety_settings(),
             system_instruction=[types.Part.from_text(text=self.system_prompt)],
-            thinking_config=types.ThinkingConfig(thinking_budget=self.thinking_budget),
+            thinking_config=thinking_config,
+            response_mime_type="application/json",
+            response_schema=PayslipData.model_json_schema(),
         )
 
-        # Generate content stream and collect usage
-        result = ""
-        usage_metadata = None
-
-        for chunk in self.client.models.generate_content_stream(
+        # Generate content (non-streaming)
+        response = self.client.models.generate_content(
             model=self.model,
             contents=contents,
             config=generate_content_config,
-        ):
-            if chunk.text is not None:
-                result += chunk.text
-            # Collect usage metadata from chunks
-            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                usage_metadata = chunk.usage_metadata
+        )
+        
+        result = response.text or ""
+        usage_metadata = response.usage_metadata if hasattr(response, "usage_metadata") else None
 
         # Extract usage information from usage_metadata
         # Gemini returns usage_metadata with prompt_token_count, candidates_token_count, total_token_count

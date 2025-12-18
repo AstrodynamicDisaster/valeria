@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from time import sleep
 
-from core.vision_model.auto_parser import AutoParser
+from core.vision_model.auto_parser import AutoParser, UnsupportedDocumentTypeError
 from core.vision_model.payslips.payslip_models import PayslipData
 from core.vision_model.common import (
     get_openai_pricing,
@@ -22,9 +22,9 @@ DEFAULT_CONFIG = {
     "input_path": None,  # Required - set this
     "output_dir": "processed_documents",
     "provider": "gemini",  # LLM provider for parsing
-    "model": "gemini-2.5-pro",  # Model name for parsing
+    "model": "gemini-3-flash-preview",  # Model name for parsing
     "classification_provider": "gemini",  # LLM provider for classification
-    "classification_model": "gemini-2.5-flash",  # Model name for classification
+    "classification_model": "gemini-3-flash-preview",  # Model name for classification
     "delay": 1.0,  # Delay between API calls in seconds
 }
 
@@ -85,9 +85,11 @@ def process_document(
                 document_type = classification_info["document_type"]
                 confidence = classification_info.get("confidence", "unknown")
                 reasoning = classification_info.get("reasoning", "")
+                classification_time = usage_info.get("classification_time_seconds", 0.0)
+                parsing_time = processing_time - classification_time
                 
                 print(f"     ✅ Document type: {document_type.upper()} (confidence: {confidence})")
-                print(f"     ⏱️  Processing time: {processing_time:.2f}s")
+                print(f"     ⏱️  Time: Total {processing_time:.2f}s (Classification: {classification_time:.2f}s | Parsing: {parsing_time:.2f}s)")
                 if reasoning:
                     print(f"     💭 Reasoning: {reasoning}")
                 
@@ -115,6 +117,7 @@ def process_document(
                     print(f"     💰 Cost: ${input_price_per_1m:.2f}*Input + ${output_price_per_1m:.2f}*Output = ${cost:.4f}")
                 else:
                     print("     ⚠️  Warning: Token usage not captured - check API response structure")
+                    cost = 0.0
                 
                 # Extract metadata for filename
                 date_for_filename = None
@@ -122,7 +125,11 @@ def process_document(
                     dni = parsed_data.trabajador.dni if parsed_data.trabajador else None
                     employee_name = parsed_data.trabajador.nombre if parsed_data.trabajador else None
                     company = parsed_data.empresa.razon_social if parsed_data.empresa else None
-                    doc_type = "PAYSLIP"
+                    # Use classification to distinguish payslip from payslip+settlement
+                    if document_type == "payslip+settlement":
+                        doc_type = "PAYSLIP_FINIQUITO"
+                    else:
+                        doc_type = "PAYSLIP"
                     # Use "hasta" date for payslips
                     if parsed_data.periodo and parsed_data.periodo.hasta:
                         date_for_filename = parsed_data.periodo.hasta
@@ -181,11 +188,30 @@ def process_document(
                     "document_type": document_type,
                     "classification": classification_info,
                     "processing_time_seconds": processing_time,
+                    "classification_time_seconds": classification_time,
+                    "parsing_time_seconds": parsing_time,
                     "parsing_usage": usage_info,
                     "parsing_cost_usd": cost if total_tokens > 0 else 0.0,
                     "output_filename": output_path.name,
                 }
                 
+                results["pages"].append(page_result)
+                sleep(delay_seconds)  # Rate limiting
+                
+            except UnsupportedDocumentTypeError as e:
+                # Document classified as "other" - skip processing
+                classification_time = e.classification_time
+                print(f"     ⏭️  Skipping document: {str(e)}")
+                print(f"     ⏱️  Classification time: {classification_time:.2f}s")
+                
+                page_result = {
+                    "page": page_num + 1,
+                    "success": False,
+                    "skipped": True,
+                    "reason": "Document classified as 'other'",
+                    "classification_time_seconds": classification_time,
+                }
+                results["pages"].append(page_result)
                 sleep(delay_seconds)  # Rate limiting
                 
             except Exception as e:
@@ -197,11 +223,12 @@ def process_document(
                     "success": False,
                     "error": str(e),
                 }
-            
-            results["pages"].append(page_result)
+                results["pages"].append(page_result)
             
         except Exception as e:
             print(f"  ❌ Error processing page {page_num + 1}: {e}")
+            import traceback
+            traceback.print_exc()
             results["pages"].append({
                 "page": page_num + 1,
                 "success": False,
@@ -298,23 +325,53 @@ def main(config: Optional[Dict[str, Any]] = None):
     
     total_pdfs = len(all_results)
     total_pages = sum(r.get("total_pages", 0) for r in all_results)
+    
+    # Successful pages: successfully parsed
     successful_pages = sum(
         sum(1 for p in r.get("pages", []) if p.get("success"))
         for r in all_results
     )
-    failed_pages = total_pages - successful_pages
+    
+    # Skipped pages: classified as "other" and intentionally not processed
+    skipped_pages = sum(
+        sum(1 for p in r.get("pages", []) if p.get("skipped"))
+        for r in all_results
+    )
+    
+    # Failed pages: actual errors during processing (not skipped)
+    failed_pages = sum(
+        sum(1 for p in r.get("pages", []) if not p.get("success") and not p.get("skipped") and p.get("error"))
+        for r in all_results
+    )
     
     payslip_count = sum(
         sum(1 for p in r.get("pages", []) if p.get("document_type") == "payslip")
+        for r in all_results
+    )
+    payslip_settlement_count = sum(
+        sum(1 for p in r.get("pages", []) if p.get("document_type") == "payslip+settlement")
         for r in all_results
     )
     settlement_count = sum(
         sum(1 for p in r.get("pages", []) if p.get("document_type") == "settlement")
         for r in all_results
     )
+    other_count = skipped_pages  # "other" documents are the skipped ones
     
     total_processing_time = sum(
         sum(p.get("processing_time_seconds", 0) for p in r.get("pages", []))
+        for r in all_results
+    )
+    
+    # Calculate total classification time
+    total_classification_time = sum(
+        sum(p.get("classification_time_seconds", 0) for p in r.get("pages", []))
+        for r in all_results
+    )
+    
+    # Calculate total parsing time
+    total_parsing_time = sum(
+        sum(p.get("parsing_time_seconds", 0) for p in r.get("pages", []))
         for r in all_results
     )
     
@@ -335,15 +392,21 @@ def main(config: Optional[Dict[str, Any]] = None):
     )
     total_tokens = total_input_tokens + total_output_tokens
     
-    print(f"Total PDFs processed: {total_pdfs}")
-    print(f"Total pages processed: {total_pages}")
-    print(f"Successful pages: {successful_pages}")
-    print(f"Failed pages: {failed_pages}")
-    print(f"Payslips detected: {payslip_count}")
-    print(f"Settlements detected: {settlement_count}")
-    print(f"Total processing time: {total_processing_time:.2f}s ({total_processing_time/60:.2f} minutes)")
-    print(f"Total parsing tokens: {total_tokens:,} (Input: {total_input_tokens:,}, Output: {total_output_tokens:,})")
-    print(f"Total parsing cost: ${total_cost:.4f}")
+    print(f"📊 Total PDFs processed: {total_pdfs}")
+    print(f"📄 Total pages processed: {total_pages}")
+    print(f"✅ Successful pages: {successful_pages}")
+    print(f"⏭️  Skipped pages (other docs): {skipped_pages}")
+    print(f"❌ Failed pages (errors): {failed_pages}")
+    print("\n📋 Document Types:")
+    print(f"   - Payslips: {payslip_count}")
+    print(f"   - Payslips + Settlement: {payslip_settlement_count}")
+    print(f"   - Settlements: {settlement_count}")
+    print(f"   - Other (skipped): {other_count}")
+    print(f"\n⏱️  Total time: {total_processing_time:.2f}s ({total_processing_time/60:.2f} min)")
+    print(f"   - Classification: {total_classification_time:.2f}s ({total_classification_time/60:.2f} min)")
+    print(f"   - Parsing: {total_parsing_time:.2f}s ({total_parsing_time/60:.2f} min)")
+    print(f"🔢 Total parsing tokens: {total_tokens:,} (Input: {total_input_tokens:,}, Output: {total_output_tokens:,})")
+    print(f"💰 Total parsing cost: ${total_cost:.4f}")
     print(f"\n📁 Results saved to: {output_dir}")
     
     # Save processing summary
@@ -361,10 +424,17 @@ def main(config: Optional[Dict[str, Any]] = None):
             "total_pdfs": total_pdfs,
             "total_pages": total_pages,
             "successful_pages": successful_pages,
+            "skipped_pages": skipped_pages,
             "failed_pages": failed_pages,
-            "payslip_count": payslip_count,
-            "settlement_count": settlement_count,
+            "document_types": {
+                "payslip": payslip_count,
+                "payslip_settlement": payslip_settlement_count,
+                "settlement": settlement_count,
+                "other_skipped": other_count,
+            },
             "total_processing_time_seconds": total_processing_time,
+            "total_classification_time_seconds": total_classification_time,
+            "total_parsing_time_seconds": total_parsing_time,
             "total_parsing_tokens": total_tokens,
             "total_parsing_input_tokens": total_input_tokens,
             "total_parsing_output_tokens": total_output_tokens,
@@ -385,9 +455,9 @@ if __name__ == "__main__":
         "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
         "output_dir": "processed_documents",
         "provider": "gemini",
-        "model": "gemini-2.5-pro",
+        "model": "gemini-3-flash-preview",
         "classification_provider": "gemini",
-        "classification_model": "gemini-2.5-pro",
+        "classification_model": "gemini-3-flash-preview",
         "delay": 1.0,
     }
     

@@ -30,32 +30,53 @@ from core.vision_model.document_classifier.models import ClassificationResult
 
 
 # Document type classification prompt
-CLASSIFICATION_PROMPT = """You are a document classifier for Spanish labor documents. Your task is to classify a document as either a regular payslip (nómina) or a termination settlement (finiquito/liquidación).
+CLASSIFICATION_PROMPT = """You are a document classifier for Spanish labor documents. Your task is to classify a document into one of four categories.
 
 Based on the text content provided, determine the document type. Return ONLY a JSON object with the following structure:
 {
-  "document_type": "payslip", "settlement" or "other",
+  "reasoning": "brief explanation of why this classification was chosen",
+  "document_type": "payslip", "settlement", "payslip+settlement" or "other",
   "confidence": "high" or "medium" or "low",
-  "reasoning": "brief explanation of why this classification was chosen"
 }
 
-Key indicators for PAYSLIP (or PAYSLIP with finiquito) (nómina):
+### Document Type Definitions:
+
+**1. PAYSLIP (nómina) - Regular monthly payroll**
+Key indicators:
 - Contains "NÓMINA" or "NOMINA" in the title
 - Shows monthly/periodic payroll information
 - Contains sections like "DEVENGOS" (earnings), "DEDUCCIONES" (deductions), "APORTACIONES EMPRESA" (employer contributions)
 - Shows a payroll period (desde/hasta dates)
 - Contains salary breakdown with multiple items
-- Could contain a finiquito section, but it is not the main purpose of the document and should be classified as PAYSLIP.
+- Does NOT contain termination/settlement information
 
-Key indicators for single SETTLEMENT (finiquito/liquidación):
-- Contains "FINIQUITO", "LIQUIDACIÓN", "FECHA CESE", "CAUSA" (termination date/reason)
+**2. SETTLEMENT (finiquito/liquidación) - Standalone termination document**
+Key indicators:
+- Contains ONLY "FINIQUITO", "LIQUIDACIÓN" as the main document type
+- Contains "FECHA CESE", "CAUSA" (termination date/reason)
 - Mentions termination of employment ("cesa en la prestación de sus servicios")
 - Contains "liquidación de partes proporcionales" (proportional settlement)
 - Shows settlement items like vacation pay, extra pay, indemnization
-- Typically a one-time document, not periodic
-- Does not contain anything realted to a payroll.
+- Does NOT contain a full payroll structure (devengos, deducciones, aportaciones empresa)
 
+**3. PAYSLIP+SETTLEMENT (nómina con finiquito) - Combined document**
+Key indicators:
+- Contains BOTH payroll structure AND settlement/termination information
+- Has "DEVENGOS", "DEDUCCIONES", "APORTACIONES EMPRESA" sections (like a payslip)
+- ALSO contains "FINIQUITO", "LIQUIDACIÓN", "FECHA CESE", termination items
+- Often appears when the last payslip includes the final settlement
+- Contains items like "VACACIONES NO DISFRUTADAS", "INDEMNIZACIÓN" alongside regular salary items
+
+**4. OTHER - Not a payslip or settlement**
+- Any document that doesn't fit the above categories
+
+Pay attention to all the text and only the text of the document to make the classification.
 Return ONLY the JSON object, no markdown, no explanations."""
+
+
+def _is_gemini_3_model(model: str) -> bool:
+    """Check if the model is a Gemini 3 model."""
+    return model.startswith("gemini-3")
 
 
 class DocumentClassifier:
@@ -92,6 +113,8 @@ class DocumentClassifier:
         elif provider == "gemini":
             if not GEMINI_AVAILABLE:
                 raise ImportError("google-genai package is required for Gemini classifier")
+            # Force location to "global" for gemini-3 models
+            actual_location = "global" if _is_gemini_3_model(model) else location
             if api_key:
                 self.client = genai.Client(api_key=api_key)
             else:
@@ -99,7 +122,7 @@ class DocumentClassifier:
                 self.client = genai.Client(
                     vertexai=True,
                     project=project,
-                    location=location
+                    location=actual_location
                 )
         else:
             raise ValueError(f"Unknown provider: {provider}. Must be 'openai' or 'gemini'")
@@ -182,7 +205,7 @@ class DocumentClassifier:
             # Validate structure
             if "document_type" not in result:
                 raise ValueError("Classification result missing 'document_type' field")
-            if result["document_type"] not in ["payslip", "settlement", "other"]:
+            if result["document_type"] not in ["payslip", "settlement", "payslip+settlement", "other"]:
                 raise ValueError(f"Invalid document_type: {result['document_type']}")
             return result
         except json.JSONDecodeError as e:
@@ -194,15 +217,21 @@ class DocumentClassifier:
             types.Content(
                 role="user",
                 parts=[
-                    types.Part.from_text(text=f"Classify this document:\n\n{text_doc[:5000]}")  # Limit text length
+                    types.Part.from_text(text=f"Classify this document:\n\n <text_doc_content>{text_doc}</text_doc_content>")  # Limit text length
                 ]
             ),
         ]
         
+        # Configure thinking config based on model version
+        if _is_gemini_3_model(self.model):
+            thinking_config = types.ThinkingConfig(thinking_level="LOW")
+        else:
+            thinking_config = types.ThinkingConfig(thinking_budget=200)
+        
         generate_content_config = types.GenerateContentConfig(
             temperature=0.1,  # Low temperature for classification
             system_instruction=[types.Part.from_text(text=CLASSIFICATION_PROMPT)],
-            thinking_config=types.ThinkingConfig(thinking_budget=128),
+            thinking_config=thinking_config,
             response_mime_type="application/json",
         )
         
@@ -218,7 +247,7 @@ class DocumentClassifier:
             # Validate structure
             if "document_type" not in result:
                 raise ValueError("Classification result missing 'document_type' field")
-            if result["document_type"] not in ["payslip", "settlement", "other"]:
+            if result["document_type"] not in ["payslip", "settlement", "payslip+settlement", "other"]:
                 raise ValueError(f"Invalid document_type: {result['document_type']}")
             return result
         except json.JSONDecodeError as e:
