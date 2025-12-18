@@ -369,6 +369,13 @@ def process_payslip(pdf_path: str, session=None):
         if doc:
             doc.close()
 
+def process_payslip_with_vision_model(pdf_path: str, session=None):
+    """
+    Process a payslip with the vision model.
+    """
+    doc = pymupdf.open(pdf_path)
+    total_pages = len(doc)
+    
 
 ### ------------------------------ ###
 ###   TEXT EXTRACTION HEURISTICS   ###
@@ -849,6 +856,7 @@ def main():
     args = p.parse_args()
 
     result = process_payslip(args.inp)
+    # result = process_payslip_with_vision_model(args.inp)
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)

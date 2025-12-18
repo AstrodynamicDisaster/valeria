@@ -11,6 +11,8 @@ distro==1.9.0
 Flask==3.1.2
 flask-cors==6.0.1
 fonttools==4.59.2
+google-auth
+google-genai
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -18,6 +20,7 @@ idna==3.10
 itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.11.0
+json-repair
 MarkupSafe==3.0.3
 numpy==2.3.2
 ollama==0.5.3
