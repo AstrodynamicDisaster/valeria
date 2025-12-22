@@ -178,6 +178,7 @@ Add warnings when:
 ### Payrolls Table
 ```sql
 payrolls:
+  - type (Enum): 'payslip' | 'settlement' | 'hybrid' (hybrid = payslip with settlement items)
   - periodo (JSON): {desde, hasta, dias}
   - devengo_total (Numeric 10,2)
   - deduccion_total (Numeric 10,2)
@@ -228,4 +229,3 @@ payroll_lines:
 4. `dias` should be between 28-31 (typically)
 5. `tipo` values should be within expected ranges for each concept
 6. `base` for aportacion items should be >= 300
-

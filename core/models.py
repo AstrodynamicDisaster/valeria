@@ -7,7 +7,7 @@ These models are used at runtime by the application.
 
 from datetime import datetime
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON, Numeric,
+    Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric,
     String, Text
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -188,6 +188,12 @@ class Payroll(Base):
 
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
+
+    type = Column(
+        Enum("payslip", "settlement", "hybrid", name="payroll_type"),
+        nullable=False,
+        default="payslip",
+    )
 
     # Period information stored as delivered by the extractor
     periodo = Column(JSON, nullable=False)

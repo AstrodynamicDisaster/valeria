@@ -11,7 +11,7 @@ Notes:
       and the fixed query provided.
     - Writes into the local/target database using create_database_engine.
     - Creates employees when missing and applies the merge logic in
-      core.agent.vida_laboral to avoid overlapping ALTA periods.
+      core.vida_laboral to avoid overlapping ALTA periods.
 """
 
 import os
@@ -25,8 +25,8 @@ from sqlalchemy import MetaData, Table, select, or_
 from sqlalchemy.orm import sessionmaker
 
 from core.database import create_database_engine, create_prod_engine
-from core.agent import vida_laboral
-from core.agent.state import ProcessingState, VidaLaboralContext
+import core.vida_laboral as vida_laboral
+from core.vida_laboral import VidaLaboralContext
 from core.models import Client
 
 
@@ -35,6 +35,7 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
     md = MetaData()
     company_employees = Table("company_employees", md, schema="public", autoload_with=prod_engine)
     companies = Table("companies", md, schema="public", autoload_with=prod_engine)
+    company_locations = Table("company_locations", md, schema="public", autoload_with=prod_engine)
 
     excluded_statuses = ("Test", "Error", "enrollment_cancelled", "cancelling_casia", "Canceled")
 
@@ -55,12 +56,18 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
             company_employees.c.cancel_enrollment_date.label("cancel_enrollment_date"),
             company_employees.c.irpf.label("irpf"),
             company_employees.c.rlce.label("rlce"),
+            company_locations.c.ccc.label("ccc_ss"),
             companies.c.name.label("Companies__name"),
             companies.c.cif.label("Companies__cif"),
             companies.c.begin_date.label("Companies__begin_date"),
             companies.c.payslips.label("Companies__payslips"),
         )
-        .select_from(company_employees.outerjoin(companies, company_employees.c.company_id == companies.c.id))
+        .select_from(
+            company_employees
+            .outerjoin(companies, company_employees.c.company_id == companies.c.id)
+            # Use company_id to bring in any location for the company; CCC is stored there
+            .outerjoin(company_locations, company_employees.c.company_id == company_locations.c.company_id)
+        )
         .where(
             companies.c.payslips.is_(True),
             companies.c.status == "Active",
@@ -105,6 +112,8 @@ def map_row(row: Mapping[str, Any]) -> dict:
         "f_efecto_alta": begin_date.isoformat() if begin_date else None,
         "f_real_sit": end_date.isoformat() if end_date else None,
         "codigo_contrato": (row.get("contract_code") or "").strip(),
+        # Production table doesn't expose CCC; leave empty unless provided by query
+        "ccc": (row.get("ccc_ss") or "").strip() if "ccc_ss" in row else "",
     }
 
 
@@ -123,7 +132,7 @@ def process_prod_query(client_identifier: str, employee_identifier: str | None =
         if not client:
             return {"success": False, "error": f"Client '{client_identifier}' not found in target DB"}
 
-        ctx = VidaLaboralContext(ProcessingState(client_id=client.id), create_employees=True)
+        ctx = VidaLaboralContext(create_employees=True)
         row_count = 0
 
         with prod_engine.connect() as conn:

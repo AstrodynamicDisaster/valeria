@@ -1,16 +1,18 @@
 from requests import session
 import core.a3.tools as a3_tools
 import core.production_models as prod_models
+import core.database as database
 from scripts.extract_vida_ccc import import_vida_laboral
 from scripts.reprocess_vida_laboral import process_vida_laboral_csv
 from scripts.reprocess_prod_query import process_prod_query
 from scripts.generate_missing_payslips_report import generate_missing_payslips_report_programmatically
+from core.missing_payslips import detect_missing_payslips_for_month
 import tempfile
 from pathlib import Path
 
 CIF = "B42524694" # TEPUY BURGERS SL
 DNI = "51774361G"
-uuid_client = "6733b4f9-0715-42e2-b074-84e086a5fab1"
+uuid_client = "16b3fdd1-c35c-4e95-a9f9-0661a08f7702"
 # CIF = "B56222938"  # DANIK
 # DNI = "04304917F"
 # CIF = "B75604249"  # JARVIS
@@ -47,6 +49,11 @@ PDF_PATHS = [str(Path(path).resolve()) for path in PDF_FILES]
 # CONNECTING TO PRODUCTION
 print("Connecting to production database...")
 prod_session = prod_models.create_production_session()
+print("Connected.")
+
+# CONNECTING TO Local DATABASE
+print("Connecting to local database...")
+local_session = database.get_session(echo=False)
 print("Connected.")
 
 # INSERTING COMPANY LOCATIONS INTO LOCAL DATABASE CLIENTS TABLE
@@ -99,6 +106,14 @@ if result["success"]:
     print(f"Report saved to: {result.get('file_path', 'N/A')}")
 else:
     print(f"Failed to generate report: {result.get('error', 'Unknown error')}") 
+
+new_result = detect_missing_payslips_for_month(session=local_session, client_id=uuid_client, month="11-2025")
+
+print("Detect missing payslips for month result:")
+if new_result["success"]:
+    print(f"Missing payslips detected: {new_result.get('missing_payslips', [])}")
+else:
+    print(f"Failed to detect missing payslips: {new_result.get('error', 'Unknown error')}")
 
 
 # PROCESS PDFS TO EXTRACT PAYSLIPS
