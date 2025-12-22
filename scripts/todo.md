@@ -13,3 +13,5 @@
 - Follow-up w/Ferran about msj files and payslips
 - Finalize importing vida laboral from prod -> This should be okay.
 - Finalize storing A3 payroll
+
+# Retribucion Administrador

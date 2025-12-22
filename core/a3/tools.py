@@ -2,9 +2,10 @@ import requests
 from typing import Optional
 import logging
 import json
-#from . import config as Config
-import config as Config
-import mappings
+from . import config as Config
+from . import mappings
+#import config as Config
+#import mappings
 from datetime import datetime
 # Import Payroll models from core/models but imagining we are inside the a3 folder
 
@@ -29,6 +30,7 @@ PAYROLL_CONCEPTS_ENDPOINT = "concepts"
 PAYROLL_INTERNAL_CONCEPTS_ENDPOINT = "calculatedinternalconcepts"
 AGREEMENTS_ENDPOINT = "agreements"
 CONCEPTS_ENDPOINT = "concepts"
+PERCEPTION_TYPE_CODES_ENDPOINT = "paytypes"
 
 # ENDPOINT KEYS
 COMPANY_CODE = "companyCode"
@@ -274,32 +276,59 @@ def extract_payslip_data(payslip: dict, payslip_data: dict) -> dict:
 
     return payroll
 
-def extract_payslip_concepts():
+def extract_payslip_concepts(concept_list: list)-> list:
 
-    date_from = datetime.fromisoformat(payslip.get(START_DATE))
-    date_to = datetime.fromisoformat(payslip.get(END_DATE))
-    days = min(30, (date_to - date_from).days +1)
+    extracted_concepts = []
+    for concept in concept_list:
 
-    payroll = {
-        "periodo": {
-            "desde": date_from.date().isoformat(),
-            "hasta":  date_to.date().isoformat(),
-            "dias": days
+        if concept.get("PayConceptAmount") == 0.0:
+            continue
 
-        },
-        "devengo_total": payslip_data["totalGross"],
-        "deduccion_total": payslip_data["totalDeduction"],
-        "aportacion_empresa_total": payslip_data["costBusiness"],
-        "liquido_a_percibir": payslip_data["totalGross"] - payslip_data["totalDeduction"],
-        "prorrata_pagas_extra": payslip_data.get("prorratedExtraPay", 0),
-        "base_cc": payslip_data.get("baseCC", 0),
-        "base_at_ep": payslip_data.get("baseAC", 0),
-        "base_irpf": payslip_data.get("totalBaseIRPF", 0),
-        "tipo_irpf": payslip_data.get("tipoIRPF", 0),
-        "warnings": "downlodaded from a3"}
+        concept_code = concept.get("conceptCode")
+        payroll_line = {
+            "category": "deduccion" if _bool(concept.get("isDiscount")) else "devengo",
+            "concept": concept.get("description"),
+            "amount": concept.get("payConceptAmount"),
+            "is_taxable_income": mappings.is_taxable_income(concept_code),
+            "is_taxable_ss": "",
+            "is_sickpay": "",
+            "is_in_kind": "",
+            "is_pay_advance": "",
+            "is_seizure": ""
+        }
 
-    return payroll
 
+
+    
+    return extracted_concepts
+
+
+
+# def extract_payslip_internal_concepts():
+
+#     date_from = datetime.fromisoformat(payslip.get(START_DATE))
+#     date_to = datetime.fromisoformat(payslip.get(END_DATE))
+#     days = min(30, (date_to - date_from).days +1)
+
+#     payroll = {
+#         "periodo": {
+#             "desde": date_from.date().isoformat(),
+#             "hasta":  date_to.date().isoformat(),
+#             "dias": days
+
+#         },
+#         "devengo_total": payslip_data["totalGross"],
+#         "deduccion_total": payslip_data["totalDeduction"],
+#         "aportacion_empresa_total": payslip_data["costBusiness"],
+#         "liquido_a_percibir": payslip_data["totalGross"] - payslip_data["totalDeduction"],
+#         "prorrata_pagas_extra": payslip_data.get("prorratedExtraPay", 0),
+#         "base_cc": payslip_data.get("baseCC", 0),
+#         "base_at_ep": payslip_data.get("baseAC", 0),
+#         "base_irpf": payslip_data.get("totalBaseIRPF", 0),
+#         "tipo_irpf": payslip_data.get("tipoIRPF", 0),
+#         "warnings": "downlodaded from a3"}
+
+#     return payroll
 
 def _parse_iso_date(date_str: str) -> datetime:
     """
@@ -312,7 +341,7 @@ def _parse_iso_date(date_str: str) -> datetime:
     return datetime.fromisoformat(date_str)
 
 
-def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> list | None:
+def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str):
     """
     Return the payslip dict for a given employee (by DNI/NIE) and month.
 
@@ -369,11 +398,13 @@ def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str) -> 
         payslip_glob = payslip
         payslip_id = payslip["payId"]
         payslip_data = get_payslip_data(payslip_id, employee_code, company_code)
-        extracted = extract_payslip_data(matching[0], payslip_data)
+        #extracted = extract_payslip_data(matching[0], payslip_data)
 
         #matching[0]=
         raw_concepts = get_payslip_concepts(company_code, employee_code, payslip_id)
         internal_concepts = get_internal_payslip_concepts(company_code, employee_code, payslip_id)
+
+        extracted_lines = []
         
         # print("RAW CONCEPTS:", internal_concepts)
 
@@ -436,7 +467,6 @@ def get_payslip_concepts(company_code: str, employee_code: str, payslip_id: str)
         logging.error(f"Unexpected error: {e}")
         return
     
-
 def get_internal_payslip_concepts(company_code: str, employee_code: str, payslip_id: str) -> list | None:
 
     headers = get_headers()
@@ -570,6 +600,45 @@ def get_company_concepts(company_cif: str) -> list | None:
     except Exception as e: 
         logging.error(f"Unexpected error: {e}")
 
+def get_perception_type_codes() -> list | None:
+    """
+    Fetches the catalog of perception type codes exposed by the A3 API.
+
+    Returns:
+        A list with the perception type code objects, or None if the call fails.
+    """
+    headers = get_headers()
+    try:
+        url = f"{Config.WOLTERS_API_BASE_URL}/{PERCEPTION_TYPE_CODES_ENDPOINT}"
+        response = requests.get(url, headers=headers)
+
+        if response.status_code != 200:
+            logging.error(
+                f"Error fetching perception type codes: {response.status_code} - {response.text}"
+            )
+            return
+
+        return response.json()
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return
+
+
+# Write a function that converts a3 true and false ("true", "false") to python boolean
+def _bool(value: Optional[object], default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in {"true", "t", "1", "yes", "y"}:
+        return True
+    if raw in {"false", "f", "0", "no", "n"}:
+        return False
+    return default
+
 
 def main(company_cif: str ) -> None:
     
@@ -619,4 +688,3 @@ if  __name__ == "__main__":
     # match = get_payslip_employee("B56222938", "Z3692032P", "2025-10")
     
     # print(match)  
-
