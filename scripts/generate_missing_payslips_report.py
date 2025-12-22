@@ -18,6 +18,46 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def generate_missing_payslips_report_programmatically(
+    *,
+    client_id: uuid.UUID | str | None = None,
+    output_format: str = "console",
+    save_to_file: bool = False,
+    filename: str | None = None,
+    last_month: str | None = None,
+    openai_api_key: str | None = None,
+) -> dict:
+    """
+    Run the missing payslips report without the CLI.
+
+    Args mirror the CLI flags:
+        client_id: UUID or string (optional). Uses current agent client if omitted.
+        output_format: "console", "csv", or "json". Default "console".
+        save_to_file: Save the report to ./reports (same behavior as CLI).
+        filename: Optional custom filename when saving.
+        last_month: Optional cutoff month in MM/YYYY (e.g., "05/2024").
+        openai_api_key: Override API key; falls back to env OPENAI_API_KEY.
+
+    Returns the same dict that `ValeriaAgent.generate_missing_payslips_report` returns.
+    """
+    # Normalize client_id
+    if client_id and isinstance(client_id, str):
+        client_id = uuid.UUID(client_id)
+
+    api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found; set it or pass openai_api_key explicitly.")
+
+    agent = ValeriaAgent(openai_api_key=api_key)
+    return agent.generate_missing_payslips_report(
+        client_id=client_id,
+        output_format=output_format,
+        save_to_file=save_to_file,
+        filename=filename,
+        last_month=last_month,
+    )
+
+
 def main():
     """Generate missing payslips report."""
 

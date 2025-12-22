@@ -8,8 +8,8 @@ These models are READ-ONLY and should never be used for writes.
 import os
 from uuid import uuid4
 
-from sqlalchemy import Column, Date, DateTime, Numeric, String, create_engine
-from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text, create_engine
+from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from core.models import Client, ClientLocation
@@ -132,6 +132,73 @@ class ProductionEmployee(ProductionBase):
 
     def __repr__(self):
         return f"<ProductionEmployee(id={self.id}, name={self.first_name} {self.last_name}, identity_card={self.identity_card_number})>"
+
+
+class ProductionEmployeeTermination(ProductionBase):
+    """Read-only model for production 'company_employee_termination' table."""
+
+    __tablename__ = "company_employee_termination"
+
+    employee_id = Column(Integer, nullable=False)
+    old_id = Column(Integer, nullable=False)
+    date_of_termination = Column(Date, nullable=False)
+    created_at = Column(DateTime)
+    termination_type = Column(String(255), nullable=False)
+    notice_period = Column(Integer)
+    id = Column(String(16), primary_key=True)
+    pending_vacation_days = Column(Numeric(5, 2), default=0)
+    certifica_resolution_file_id = Column(String)
+    certifica_sent_at = Column(DateTime)
+    deleted_at = Column(DateTime)
+    details = Column(Text)
+
+    def __repr__(self):
+        return (
+            f"<ProductionEmployeeTermination(id={self.id}, employee_id={self.employee_id}, "
+            f"termination_type={self.termination_type})>"
+        )
+
+
+class ProductionEmployeeContractHistory(ProductionBase):
+    """Read-only model for production 'employee_contract_history' table."""
+
+    __tablename__ = "employee_contract_history"
+
+    id = Column(String(255), primary_key=True)
+    company_employee_id = Column(String(255), nullable=False)
+    change_code = Column(String(32), nullable=False)
+    description = Column(String(255))
+    new_value = Column(JSONB, nullable=False)
+    previous_value = Column(JSONB, nullable=False)
+    recorded_at = Column(DateTime, nullable=False)
+    effective_date = Column(Date)
+    employee_document_id = Column(String(255))
+
+    def __repr__(self):
+        return (
+            f"<ProductionEmployeeContractHistory(id={self.id}, employee_id={self.company_employee_id}, "
+            f"change_code={self.change_code})>"
+        )
+
+
+class ProductionEmploymentContract(ProductionBase):
+    """Read-only model for production 'employment_contract' table."""
+
+    __tablename__ = "employment_contract"
+
+    id = Column(String(16), primary_key=True)
+    employee_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    status = Column(Integer, nullable=False)
+    update_time = Column(DateTime, nullable=False)
+    signature_id = Column(Numeric)
+    signature_landing_url = Column(Text)
+    deleted_at = Column(DateTime)
+
+    def __repr__(self):
+        return (
+            f"<ProductionEmploymentContract(id={self.id}, employee_id={self.employee_id}, status={self.status})>"
+        )
 
 
 def create_production_engine(database_url: str = None, echo: bool = False):
