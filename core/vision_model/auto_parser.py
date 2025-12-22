@@ -1,29 +1,21 @@
-"""
-Auto parser that automatically classifies documents and routes to appropriate parser.
-
-This module provides a unified interface for parsing both payslips and settlement documents.
-It first classifies the document type using an LLM, then routes to the appropriate parser.
-"""
-
-from typing import Dict, Optional, Tuple, Union, Literal
-
-from core.vision_model.payslips.payslip_parsers import (
-    create_openai_parser,
-    create_gemini_parser,
-    OpenAIPayslipParser,
-    GeminiPayslipParser,
-)
-from core.vision_model.payslips.payslip_models import PayslipData
-
-from core.vision_model.settlements.settlement_parsers import (
-    create_openai_settlement_parser,
-    create_gemini_settlement_parser,
-    OpenAISettlementParser,
-    GeminiSettlementParser,
-)
-from core.vision_model.settlements.settlement_models import SettlementData
+import time
+from typing import Dict, Literal, Optional, Tuple, Union
 
 from core.vision_model.document_classifier import DocumentClassifier
+from core.vision_model.payslips.payslip_models import PayslipData
+from core.vision_model.payslips.payslip_parsers import (
+    GeminiPayslipParser,
+    OpenAIPayslipParser,
+    create_gemini_parser,
+    create_openai_parser,
+)
+from core.vision_model.settlements.settlement_models import SettlementData
+from core.vision_model.settlements.settlement_parsers import (
+    GeminiSettlementParser,
+    OpenAISettlementParser,
+    create_gemini_settlement_parser,
+    create_openai_settlement_parser,
+)
 
 
 class UnsupportedDocumentTypeError(Exception):
@@ -143,6 +135,8 @@ class AutoParser:
             raise ValueError("text_doc is required for document classification")
         
         classification_info = self.classifier.classify(text_doc)
+        # delay 1 second
+        time.sleep(1)
         document_type = classification_info["document_type"]
         
         # Step 2: Route to appropriate parser

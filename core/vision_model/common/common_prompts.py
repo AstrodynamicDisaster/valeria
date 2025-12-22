@@ -207,7 +207,7 @@ payslip_example_output = """
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
     "ind_is_exento_IRPF": false,
-    "ind_cotiza_ss": true
+    "ind_cotiza_ss": false
    }
   },
   {
@@ -221,7 +221,7 @@ payslip_example_output = """
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
     "ind_is_exento_IRPF": false,
-    "ind_cotiza_ss": true
+    "ind_cotiza_ss": false
    }
   },
   {

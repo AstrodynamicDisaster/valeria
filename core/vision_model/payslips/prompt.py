@@ -170,9 +170,8 @@ Each item must have:
     * Most deductions are NOT exempt (they are part of the IRPF calculation)
     * Set to `false` for standard deductions
   - **ind_cotiza_ss**: `boolean` | `null`
-    * Set to `true` if the deduction is related to Social Security contributions
-    * Examples: DTO. CONT. COMUNES, DTO. BASE ACCIDENTE → `true`
-    * Examples: RETENCION IRPF, EMBARGO → `false`
+    * Set to `true` if the deduction substracts from Social Security contributions
+    * Most of the time it will be `false`.
 
 If you spot any other concept that is not in the list, keep it as extracted but normalize spaces and case.
 

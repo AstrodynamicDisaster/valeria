@@ -452,13 +452,13 @@ def main(config: Optional[Dict[str, Any]] = None):
 if __name__ == "__main__":
     # Example usage with dict config
     config = {
-        "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
+        "input_path": "nominas_tepuy_nov.pdf", # "core/vision_model/tests/sample_docs",  # Change this to your path
         "output_dir": "processed_documents",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",
         "classification_provider": "gemini",
         "classification_model": "gemini-3-flash-preview",
-        "delay": 1.0,
+        "delay": 2,
     }
     
     main(config)
