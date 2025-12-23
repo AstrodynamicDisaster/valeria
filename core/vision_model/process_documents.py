@@ -17,18 +17,6 @@ from core.vision_model.common import (
 )
 
 
-# Default configuration
-DEFAULT_CONFIG = {
-    "input_path": None,  # Required - set this
-    "output_dir": "processed_documents",
-    "provider": "gemini",  # LLM provider for parsing
-    "model": "gemini-3-flash-preview",  # Model name for parsing
-    "classification_provider": "gemini",  # LLM provider for classification
-    "classification_model": "gemini-3-flash-preview",  # Model name for classification
-    "delay": 1.0,  # Delay between API calls in seconds
-}
-
-
 def process_document(
     pdf_path: Path,
     parser: AutoParser,
@@ -449,11 +437,23 @@ def main(config: Optional[Dict[str, Any]] = None):
     print(f"📊 Processing summary saved to: {summary_path.name}")
 
 
+
+# Default configuration
+DEFAULT_CONFIG = {
+    "input_path": None,  # Required - set this
+    "output_dir": "processed_documents",
+    "provider": "gemini",  # LLM provider for parsing
+    "model": "gemini-3-flash-preview",  # Model name for parsing
+    "classification_provider": "gemini",  # LLM provider for classification
+    "classification_model": "gemini-3-flash-preview",  # Model name for classification
+    "delay": 1.0,  # Delay between API calls in seconds
+}
+
 if __name__ == "__main__":
     # Example usage with dict config
     config = {
         # "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
-        "input_path": "core/vision_model/tests/sample_docs/nominas_tepuy_nov.pdf",
+        "input_path": "nominas_tepuy_nov.pdf",
         "output_dir": "processed_documents",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",

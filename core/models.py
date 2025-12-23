@@ -198,11 +198,6 @@ class Payroll(Base):
     # Period information stored as delivered by the extractor
     periodo = Column(JSON, nullable=False)
 
-    type = Column(
-        Enum("payslip", "settlement", "hybrid", name="payroll_type"),
-        nullable=False,
-        default="payslip",
-    )
 
     # Totals captured explicitly to avoid nested JSON
     devengo_total = Column(Numeric(12, 2), nullable=False)

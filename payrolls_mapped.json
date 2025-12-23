@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "source_folder": "processed_documents\\tepuy_last",
-    "total_payrolls": 11,
-    "generated_at": "2025-12-22T19:31:59.819067"
+    "source_folder": "processed_documents",
+    "total_payrolls": 13,
+    "generated_at": "2025-12-23T17:26:21.930043"
   },
   "payrolls": [
     {
@@ -13,7 +13,7 @@
       },
       "trabajador": {
         "nombre": "PERALES MARTIN NAZARIA COROMOTO",
-        "dni": "48794244C",
+        "dni": "4879424244C",
         "ss_number": "031089765646"
       },
       "periodo": {
@@ -32,13 +32,16 @@
       "tipo_irpf": 35.0,
       "warnings": [
         "Standardized the format of the worker's name.",
-        "Standardized the format of the Social Security Affiliation Number."
+        "Standardized the format of the Social Security Affiliation Number.",
+        "No employer contribution items were found in the document."
       ],
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 5,
-      "timestamp": "2025-12-22T19:25:12.109915",
-      "source_json_file": "PAYSLIP_48794244C_PERALES MARTIN NAZARIA COROMOTO_Tepuy Burger SL_2025-11-30_P5_1.json",
+      "timestamp": "2025-12-23T17:21:42.045949",
+      "source_json_file": "PAYSLIP_4879424244C_PERALES MARTIN NAZARIA COROMOTO_Tepuy Burger SL_2025-11-30_P5.json",
+      "processing_time": 8.063549757003784,
+      "parsing_cost": 0.0086,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -73,7 +76,7 @@
         "cif": "B42524694"
       },
       "trabajador": {
-        "nombre": "ZAMBRANO PERALES, MANUEL ALEJANDRO",
+        "nombre": "ZAMBRANO PERALES MANUEL ALEJANDRO",
         "dni": "48800739Y",
         "ss_number": "031102408079"
       },
@@ -93,13 +96,16 @@
       "tipo_irpf": 15.0,
       "warnings": [
         "Standardized the format of the worker's name.",
-        "Standardized the format of the Social Security Affiliation Number."
+        "Standardized the format of the Social Security Affiliation Number.",
+        "The value 'aportacion_empresa_total' was not found and has been set to 0.0 as no employer contribution details were provided in the breakdown."
       ],
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 4,
-      "timestamp": "2025-12-22T19:25:01.076968",
-      "source_json_file": "PAYSLIP_48800739Y_ZAMBRANO PERALES, MANUEL ALEJANDRO_Tepuy Burger SL_2025-11-30_P4_1.json",
+      "timestamp": "2025-12-23T17:21:30.967434",
+      "source_json_file": "PAYSLIP_48800739Y_ZAMBRANO PERALES MANUEL ALEJANDRO_Tepuy Burger SL_2025-11-30_P4.json",
+      "processing_time": 8.7841477394104,
+      "parsing_cost": 0.009095,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -172,8 +178,10 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 1,
-      "timestamp": "2025-12-22T19:24:14.439839",
-      "source_json_file": "PAYSLIP_51774361G_GUIJARRO LILLO JAVIER_Tepuy Burger SL_2025-11-30_P1_1.json",
+      "timestamp": "2025-12-23T17:20:45.058039",
+      "source_json_file": "PAYSLIP_51774361G_GUIJARRO LILLO JAVIER_Tepuy Burger SL_2025-11-30_P1.json",
+      "processing_time": 20.069678783416748,
+      "parsing_cost": 0.012452000000000001,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -189,7 +197,7 @@
         },
         {
           "category": "devengo",
-          "concept": "NOCTURNIDAD",
+          "concept": "HORAS NOCTURNAS",
           "raw_concept": "*HORAS NOCTURNAS",
           "amount": 23.23,
           "is_taxable_income": true,
@@ -353,7 +361,7 @@
       "deduccion_total": 30.37,
       "aportacion_empresa_total": 116.51,
       "liquido_a_percibir": 311.25,
-      "prorrata_pagas_extra": 21.71,
+      "prorrata_pagas_extra": 0.0,
       "base_cc": 363.33,
       "base_at_ep": 363.33,
       "base_irpf": 341.62,
@@ -365,9 +373,11 @@
       ],
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
-      "page": 11,
-      "timestamp": "2025-12-22T19:27:07.023782",
-      "source_json_file": "PAYSLIP_53249237M_FEMENÍA LECEA, MAY_Tepuy Burger SL_2025-11-30_P11.json",
+      "page": 13,
+      "timestamp": "2025-12-23T17:23:58.356807",
+      "source_json_file": "PAYSLIP_53249237M_FEMENÍA LECEA, MAY_Tepuy Burger SL_2025-11-30_P13.json",
+      "processing_time": 13.100124597549438,
+      "parsing_cost": 0.011981,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -383,7 +393,7 @@
         },
         {
           "category": "devengo",
-          "concept": "NOCTURNIDAD",
+          "concept": "HORAS NOCTURNAS",
           "raw_concept": "*HORAS NOCTURNAS",
           "amount": 13.13,
           "is_taxable_income": true,
@@ -534,7 +544,203 @@
         "cif": "B42524694"
       },
       "trabajador": {
-        "nombre": "ROSADORO MARIO ANDRES",
+        "nombre": "LOUNICI MERIEM",
+        "dni": "78152210G",
+        "ss_number": "181063641173"
+      },
+      "periodo": {
+        "desde": "2025-11-01",
+        "hasta": "2025-11-04",
+        "dias": 4
+      },
+      "devengo_total": 118.45,
+      "deduccion_total": 12.62,
+      "aportacion_empresa_total": 50.69,
+      "liquido_a_percibir": 105.83,
+      "prorrata_pagas_extra": 0.0,
+      "base_cc": 158.08,
+      "base_at_ep": 158.08,
+      "base_irpf": 118.45,
+      "tipo_irpf": 2.0,
+      "warnings": [
+        "Standardized the format of the worker's name.",
+        "Standardized the format of the Social Security Affiliation Number.",
+        "The value 'aportacion_empresa_total' was not found and has been calculated by summing its components."
+      ],
+      "fecha_documento": "2025-11-04",
+      "source_file": "nominas_tepuy_nov.pdf",
+      "page": 9,
+      "timestamp": "2025-12-23T17:22:49.429016",
+      "source_json_file": "PAYSLIP_78152210G_LOUNICI MERIEM_Tepuy Burger SL_2025-11-04_P9.json",
+      "processing_time": 14.645019769668579,
+      "parsing_cost": 0.012446,
+      "payroll_lines": [
+        {
+          "category": "devengo",
+          "concept": "SALARIO BASE",
+          "raw_concept": "*SALARIO BASE",
+          "amount": 94.97,
+          "is_taxable_income": true,
+          "is_taxable_ss": true,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "devengo",
+          "concept": "PAGA EXTRA",
+          "raw_concept": "*PAGA EXTRA",
+          "amount": 23.48,
+          "is_taxable_income": true,
+          "is_taxable_ss": true,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "DTO. CONT. COMUNES",
+          "raw_concept": "COTIZACIÓN CONTINGENCIAS COMUNES (4,70%)",
+          "amount": 7.43,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "MEI",
+          "raw_concept": "COTIZACIÓN MECANISMO EQUIDAD INTERGENERACIONAL (0,13%)",
+          "amount": 0.21,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "FORMACIÓN PROFESIONAL",
+          "raw_concept": "COTIZACIÓN FORMACIÓN PROFESIONAL (0,10%)",
+          "amount": 0.16,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "DESEMPLEO",
+          "raw_concept": "COTIZACIÓN DESEMPLEO (1,55%)",
+          "amount": 2.45,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "RETENCION IRPF",
+          "raw_concept": "TRIBUTACIÓN IRPF (2,00%)",
+          "amount": 2.37,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS",
+          "raw_concept": "BASE INCAPACIDAD TEMPORAL TOTAL",
+          "amount": 37.31,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "MEI",
+          "raw_concept": "MECANISMO EQUIDAD INTERGENERACIONAL",
+          "amount": 1.05,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "AT Y EP",
+          "raw_concept": "AT Y EP",
+          "amount": 2.37,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "DESEMPLEO",
+          "raw_concept": "DESEMPLEO",
+          "amount": 8.69,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "FORMACIÓN PROFESIONAL",
+          "raw_concept": "FORMACIÓN PROFESIONAL",
+          "amount": 0.95,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "aportacion_empresa",
+          "concept": "FONDO GARANTÍA SALARIAL",
+          "raw_concept": "FONDO DE GARANTÍA SALARIAL",
+          "amount": 0.32,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        }
+      ]
+    },
+    {
+      "type": "payslip",
+      "empresa": {
+        "razon_social": "Tepuy Burger SL",
+        "cif": "B42524694"
+      },
+      "trabajador": {
+        "nombre": "ROSADORO, MARIO ANDRES",
         "dni": "Y5381343R",
         "ss_number": "031123804764"
       },
@@ -560,8 +766,10 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 3,
-      "timestamp": "2025-12-22T19:24:49.964140",
-      "source_json_file": "PAYSLIP_Y5381343R_ROSADORO MARIO ANDRES_Tepuy Burger SL_2025-11-30_P3.json",
+      "timestamp": "2025-12-23T17:21:19.168118",
+      "source_json_file": "PAYSLIP_Y5381343R_ROSADORO, MARIO ANDRES_Tepuy Burger SL_2025-11-30_P3.json",
+      "processing_time": 13.124167919158936,
+      "parsing_cost": 0.011573,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -716,7 +924,7 @@
         "cif": "B42524694"
       },
       "trabajador": {
-        "nombre": "JURADO GARCIA, CARLOS MARTIN",
+        "nombre": "JURADO GARCIA CARLOS MARTIN",
         "dni": "Y7509823S",
         "ss_number": "031137009393"
       },
@@ -742,8 +950,10 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 2,
-      "timestamp": "2025-12-22T19:24:32.851186",
-      "source_json_file": "PAYSLIP_Y7509823S_JURADO GARCIA, CARLOS MARTIN_Tepuy Burger SL_2025-11-30_P2.json",
+      "timestamp": "2025-12-23T17:21:03.026479",
+      "source_json_file": "PAYSLIP_Y7509823S_JURADO GARCIA CARLOS MARTIN_Tepuy Burger SL_2025-11-30_P2.json",
+      "processing_time": 14.950152158737183,
+      "parsing_cost": 0.012989,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -759,7 +969,7 @@
         },
         {
           "category": "devengo",
-          "concept": "NOCTURNIDAD",
+          "concept": "HORAS NOCTURNAS",
           "raw_concept": "*HORAS NOCTURNAS",
           "amount": 40.4,
           "is_taxable_income": true,
@@ -844,7 +1054,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS",
-          "raw_concept": "CONTINGENCIAS COMUNES",
+          "raw_concept": "BASE INCAPACIDAD TEMPORAL TOTAL",
           "amount": 418.87,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -948,13 +1158,15 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 7,
-      "timestamp": "2025-12-22T19:25:46.121133",
-      "source_json_file": "PAYSLIP_Y7724535E_DABROWSKI DONATI FEDERICO EMILIANO_Tepuy Burger SL_2025-11-30_P7_1.json",
+      "timestamp": "2025-12-23T17:22:13.920935",
+      "source_json_file": "PAYSLIP_Y7724535E_DABROWSKI DONATI FEDERICO EMILIANO_Tepuy Burger SL_2025-11-30_P7.json",
+      "processing_time": 14.322311639785767,
+      "parsing_cost": 0.012434,
       "payroll_lines": [
         {
           "category": "devengo",
           "concept": "SALARIO BASE",
-          "raw_concept": "*SALARIO BASE",
+          "raw_concept": "*Salario Base",
           "amount": 1288.48,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -965,8 +1177,8 @@
         },
         {
           "category": "devengo",
-          "concept": "NOCTURNIDAD",
-          "raw_concept": "*HORAS NOCTURNAS",
+          "concept": "HORAS NOCTURNAS",
+          "raw_concept": "*Horas nocturnas",
           "amount": 16.16,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -978,7 +1190,7 @@
         {
           "category": "devengo",
           "concept": "PAGA EXTRA",
-          "raw_concept": "*PAGA EXTRA",
+          "raw_concept": "*Paga Extra",
           "amount": 315.71,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -990,7 +1202,7 @@
         {
           "category": "deduccion",
           "concept": "DTO. CONT. COMUNES",
-          "raw_concept": "COTIZACIÓN CONTINGENCIAS COMUNES (4,70%)",
+          "raw_concept": "Cotización Contingencias Comunes (4,70%)",
           "amount": 76.16,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1002,7 +1214,7 @@
         {
           "category": "deduccion",
           "concept": "MEI",
-          "raw_concept": "COTIZACIÓN MECANISMO EQUIDAD INTERGENERACIONAL (0,13%)",
+          "raw_concept": "Cotización Mecanismo Equidad Intergeneracional (0,13%)",
           "amount": 2.11,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1013,8 +1225,8 @@
         },
         {
           "category": "deduccion",
-          "concept": "DTO. SEGURIDAD SOCIAL",
-          "raw_concept": "COTIZACIÓN FORMACIÓN PROFESIONAL (0,10%)",
+          "concept": "FORMACIÓN PROFESIONAL",
+          "raw_concept": "Cotización Formación Profesional (0,10%)",
           "amount": 1.62,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1025,8 +1237,8 @@
         },
         {
           "category": "deduccion",
-          "concept": "DTO. SEGURIDAD SOCIAL",
-          "raw_concept": "COTIZACIÓN DESEMPLEO (1,55%)",
+          "concept": "DESEMPLEO",
+          "raw_concept": "Cotización Desempleo (1,55%)",
           "amount": 25.12,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1038,7 +1250,7 @@
         {
           "category": "deduccion",
           "concept": "RETENCION IRPF",
-          "raw_concept": "TRIBUTACIÓN IRPF (7,07%)",
+          "raw_concept": "Tributación IRPF (7,07%)",
           "amount": 114.56,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1050,7 +1262,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS",
-          "raw_concept": "BASE INCAPACIDAD TEMPORAL TOTAL",
+          "raw_concept": "Base Incapacidad Temporal Total",
           "amount": 382.4,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1062,7 +1274,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "MEI",
-          "raw_concept": "MECANISMO EQUIDAD INTERGENERACIONAL",
+          "raw_concept": "Mecanismo Equidad Intergeneracional",
           "amount": 10.85,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1074,7 +1286,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "AT Y EP",
-          "raw_concept": "AT Y EP",
+          "raw_concept": "AT y EP",
           "amount": 24.3,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1086,7 +1298,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "DESEMPLEO",
-          "raw_concept": "DESEMPLEO",
+          "raw_concept": "Desempleo",
           "amount": 89.12,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1098,7 +1310,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "FORMACIÓN PROFESIONAL",
-          "raw_concept": "FORMACIÓN PROFESIONAL",
+          "raw_concept": "Formación Profesional",
           "amount": 9.72,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1110,7 +1322,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "FONDO GARANTÍA SALARIAL",
-          "raw_concept": "FONDO DE GARANTÍA SALARIAL",
+          "raw_concept": "Fondo de garantía salarial",
           "amount": 3.24,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1128,7 +1340,7 @@
         "cif": "B42524694"
       },
       "trabajador": {
-        "nombre": "BRITO ORTIZ, ANDREA",
+        "nombre": "BRITO ORTIZ ANDREA",
         "dni": "Z0673117G",
         "ss_number": "031163238500"
       },
@@ -1153,9 +1365,11 @@
       ],
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
-      "page": 10,
-      "timestamp": "2025-12-22T19:26:49.526778",
-      "source_json_file": "PAYSLIP_Z0673117G_BRITO ORTIZ, ANDREA_Tepuy Burger SL_2025-11-30_P10.json",
+      "page": 12,
+      "timestamp": "2025-12-23T17:23:42.241640",
+      "source_json_file": "PAYSLIP_Z0673117G_BRITO ORTIZ ANDREA_Tepuy Burger SL_2025-11-30_P12.json",
+      "processing_time": 15.336342334747314,
+      "parsing_cost": 0.012971,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -1360,8 +1574,10 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 6,
-      "timestamp": "2025-12-22T19:25:29.019119",
-      "source_json_file": "PAYSLIP_Z1994241P_REYES LEONETT ANGY PAOLA_Tepuy Burger SL_2025-11-30_P6_1.json",
+      "timestamp": "2025-12-23T17:21:56.584482",
+      "source_json_file": "PAYSLIP_Z1994241P_REYES LEONETT ANGY PAOLA_Tepuy Burger SL_2025-11-30_P6.json",
+      "processing_time": 11.531578063964844,
+      "parsing_cost": 0.010667000000000001,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -1450,7 +1666,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS",
-          "raw_concept": "CONTINGENCIAS COMUNES TOTAL",
+          "raw_concept": "CONTINGENCIAS COMUNES",
           "amount": 147.66,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1554,8 +1770,10 @@
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
       "page": 8,
-      "timestamp": "2025-12-22T19:26:05.324509",
-      "source_json_file": "PAYSLIP_Z2553378S_MATHEUS VALDIVIESO ARIANNA_Tepuy Burger SL_2025-11-30_P8_1.json",
+      "timestamp": "2025-12-23T17:22:31.776493",
+      "source_json_file": "PAYSLIP_Z2553378S_MATHEUS VALDIVIESO ARIANNA_Tepuy Burger SL_2025-11-30_P8.json",
+      "processing_time": 14.845263242721558,
+      "parsing_cost": 0.012539000000000002,
       "payroll_lines": [
         {
           "category": "devengo",
@@ -1619,7 +1837,7 @@
         },
         {
           "category": "deduccion",
-          "concept": "DESEMPLEO",
+          "concept": "DTO. SEGURIDAD SOCIAL",
           "raw_concept": "COTIZACIÓN DESEMPLEO (1,55%)",
           "amount": 24.21,
           "is_taxable_income": false,
@@ -1722,7 +1940,7 @@
         "cif": "B42524694"
       },
       "trabajador": {
-        "nombre": "COLMENAREZ VARGAS LUIS ENRIQUE",
+        "nombre": "COLMENAREZ VARGAS, LUIS ENRIQUE",
         "dni": "Z2779517H",
         "ss_number": "031174903556"
       },
@@ -1747,14 +1965,16 @@
       ],
       "fecha_documento": "2025-11-30",
       "source_file": "nominas_tepuy_nov.pdf",
-      "page": 9,
-      "timestamp": "2025-12-22T19:26:26.649332",
-      "source_json_file": "PAYSLIP_Z2779517H_COLMENAREZ VARGAS LUIS ENRIQUE_Tepuy Burger SL_2025-11-30_P9_1.json",
+      "page": 11,
+      "timestamp": "2025-12-23T17:23:23.894675",
+      "source_json_file": "PAYSLIP_Z2779517H_COLMENAREZ VARGAS, LUIS ENRIQUE_Tepuy Burger SL_2025-11-30_P11.json",
+      "processing_time": 14.875206232070923,
+      "parsing_cost": 0.012419000000000001,
       "payroll_lines": [
         {
           "category": "devengo",
           "concept": "SALARIO BASE",
-          "raw_concept": "SALARIO BASE",
+          "raw_concept": "*SALARIO BASE",
           "amount": 870.93,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -1765,8 +1985,8 @@
         },
         {
           "category": "devengo",
-          "concept": "NOCTURNIDAD",
-          "raw_concept": "HORAS NOCTURNAS",
+          "concept": "HORAS NOCTURNAS",
+          "raw_concept": "*HORAS NOCTURNAS",
           "amount": 33.33,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -1778,7 +1998,7 @@
         {
           "category": "devengo",
           "concept": "PAGA EXTRA",
-          "raw_concept": "PAGA EXTRA",
+          "raw_concept": "*PAGA EXTRA",
           "amount": 215.37,
           "is_taxable_income": true,
           "is_taxable_ss": true,
@@ -1813,7 +2033,7 @@
         },
         {
           "category": "deduccion",
-          "concept": "DTO. SEGURIDAD SOCIAL",
+          "concept": "FORMACIÓN PROFESIONAL",
           "raw_concept": "COTIZACIÓN FORMACIÓN PROFESIONAL (0,10%)",
           "amount": 1.11,
           "is_taxable_income": false,
@@ -1825,7 +2045,7 @@
         },
         {
           "category": "deduccion",
-          "concept": "DTO. SEGURIDAD SOCIAL",
+          "concept": "DESEMPLEO",
           "raw_concept": "COTIZACIÓN DESEMPLEO (1,55%)",
           "amount": 17.36,
           "is_taxable_income": false,
@@ -1850,7 +2070,7 @@
         {
           "category": "aportacion_empresa",
           "concept": "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS",
-          "raw_concept": "BASE INCAPACIDAD TEMPORAL TOTAL",
+          "raw_concept": "CONTINGENCIAS COMUNES",
           "amount": 264.23,
           "is_taxable_income": false,
           "is_taxable_ss": false,
@@ -1912,6 +2132,118 @@
           "concept": "FONDO GARANTÍA SALARIAL",
           "raw_concept": "FONDO DE GARANTÍA SALARIAL",
           "amount": 2.24,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        }
+      ]
+    },
+    {
+      "type": "settlement",
+      "empresa": {
+        "razon_social": "Tepuy Burger SL",
+        "cif": "B42524694"
+      },
+      "trabajador": {
+        "nombre": "LOUNICI MERIEM",
+        "dni": "78152210G",
+        "ss_number": "181063641173"
+      },
+      "periodo": {
+        "desde": null,
+        "hasta": null,
+        "dias": null
+      },
+      "devengo_total": 135.0,
+      "deduccion_total": 11.46,
+      "aportacion_empresa_total": 0.0,
+      "liquido_a_percibir": 123.54,
+      "prorrata_pagas_extra": 0.0,
+      "base_cc": 135.0,
+      "base_at_ep": 135.0,
+      "base_irpf": 135.0,
+      "tipo_irpf": 2.0,
+      "warnings": [
+        "Standardized the format of the worker's name.",
+        "Date format was converted to YYYY-MM-DD.",
+        "Social Security number formatted by removing non-digit characters."
+      ],
+      "fecha_documento": "2025-11-04",
+      "source_file": "nominas_tepuy_nov.pdf",
+      "page": 10,
+      "timestamp": "2025-12-23T17:23:06.012188",
+      "source_json_file": "SETTLEMENT_78152210G_LOUNICI MERIEM_Tepuy Burger SL_2025-11-04_P10.json",
+      "processing_time": 13.571037530899048,
+      "parsing_cost": 0.006585,
+      "payroll_lines": [
+        {
+          "category": "devengo",
+          "concept": "VACACIONES NO DISFRUTADAS",
+          "raw_concept": "PARTE PROPORCIONAL VACACIONES",
+          "amount": 135.0,
+          "is_taxable_income": true,
+          "is_taxable_ss": true,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "COTIZACIÓN CONTINGENCIAS COMUNES",
+          "raw_concept": "COTIZACIÓN CONTINGENCIAS COMUNES (4,70%)",
+          "amount": 6.35,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "COTIZACIÓN MEI",
+          "raw_concept": "COTIZACIÓN MECANISMO EQUIDAD INTERGENERACIONAL (0,13%)",
+          "amount": 0.18,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "COTIZACIÓN FORMACIÓN PROFESIONAL",
+          "raw_concept": "COTIZACIÓN FORMACIÓN PROFESIONAL (0,10%)",
+          "amount": 0.14,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "COTIZACIÓN DESEMPLEO",
+          "raw_concept": "COTIZACIÓN DESEMPLEO (1,55%)",
+          "amount": 2.09,
+          "is_taxable_income": false,
+          "is_taxable_ss": false,
+          "is_sickpay": false,
+          "is_in_kind": false,
+          "is_pay_advance": false,
+          "is_seizure": false
+        },
+        {
+          "category": "deduccion",
+          "concept": "RETENCION IRPF",
+          "raw_concept": "TRIBUTACIÓN IRPF (2,00%)",
+          "amount": 2.7,
           "is_taxable_income": false,
           "is_taxable_ss": false,
           "is_sickpay": false,

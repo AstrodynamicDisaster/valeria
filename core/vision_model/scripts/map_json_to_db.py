@@ -12,7 +12,6 @@ Ejemplo:
 import json
 import sys
 from pathlib import Path
-from decimal import Decimal
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -133,6 +132,10 @@ def map_payslip_json_to_db_format(json_data: Dict[str, Any], source_file: Option
             "page": json_data.get("page"),
             "timestamp": json_data.get("timestamp"),
             "source_json_file": source_file,  # Archivo JSON fuente
+            
+            # Métricas de procesamiento
+            "processing_time": json_data.get("processing_time_seconds"),
+            "parsing_cost": json_data.get("parsing_cost_usd"),
         }
         
         # Mapear line items
@@ -176,20 +179,21 @@ def is_valid_document_file(filename: str) -> bool:
 def get_payroll_key(payroll: Dict[str, Any]) -> Optional[tuple]:
     """
     Genera una clave única para agrupar nóminas del mismo trabajador y fecha de documento.
-    Usa fecha_documento en lugar de periodo porque no siempre está el periodo en el documento.
+    Incluye la base_cc como restricción para evitar mergear nóminas distintas del mismo periodo.
     
     Args:
         payroll: Payroll mapeado
     
     Returns:
-        Tupla (dni, fecha_documento) o None si falta información
+        Tupla con los campos de agrupación o None si falta información crítica
     """
     trabajador = payroll.get("trabajador", {})
     dni = trabajador.get("dni")
     fecha_documento = payroll.get("fecha_documento")
+    base_cc = payroll.get("base_cc", 0.0) # 0.0 es el valor por defecto si es null
     
     if dni and fecha_documento:
-        return (dni, fecha_documento)
+        return (dni, fecha_documento, base_cc)
     
     # Fallback: si no hay fecha_documento, intentar con periodo
     periodo = payroll.get("periodo", {})
@@ -197,7 +201,7 @@ def get_payroll_key(payroll: Dict[str, Any]) -> Optional[tuple]:
     hasta = periodo.get("hasta")
     
     if dni and desde and hasta:
-        return (dni, desde, hasta)
+        return (dni, desde, hasta, base_cc)
     
     return None
 
@@ -224,6 +228,8 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Recopilar todos los archivos fuente
     source_files = []
     all_warnings = []
+    total_processing_time = 0.0
+    total_parsing_cost = 0.0
     
     # Inicializar listas de items por categoría
     all_devengo_items = []
@@ -236,6 +242,10 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
         if source_file:
             source_files.append(source_file)
         all_warnings.extend(payroll.get("warnings", []))
+        
+        # Sumar métricas
+        total_processing_time += (payroll.get("processing_time") or 0.0)
+        total_parsing_cost += (payroll.get("parsing_cost") or 0.0)
         
         # Agregar items de esta nómina
         for item in payroll.get("payroll_lines", []):
@@ -273,6 +283,8 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
     base["merged_from"] = source_files
     base["merged_parts_count"] = len(payrolls)
     base["is_merged"] = True
+    base["processing_time"] = total_processing_time
+    base["parsing_cost"] = total_parsing_cost
     
     # Determinar el tipo combinado
     types = {p.get("type") for p in payrolls}
@@ -393,7 +405,7 @@ def process_json_folder(input_folder: Path) -> List[Dict[str, Any]]:
         print(f"Errores: {len(errors)} archivos")
     
     # Agrupar y mergear nóminas del mismo trabajador y periodo
-    print(f"\nAgrupando y mergeando nóminas...")
+    print("\nAgrupando y mergeando nóminas...")
     merged_payrolls = group_and_merge_payrolls(mapped_payrolls)
     
     print(f"\nResultado final: {len(merged_payrolls)} nóminas (de {len(mapped_payrolls)} partes procesadas)")

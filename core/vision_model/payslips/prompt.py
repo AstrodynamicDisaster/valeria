@@ -1,4 +1,4 @@
-from core.vision_model.common.common_prompts import payslip_bible_cotizations_prompt, payslip_example_output
+from core.vision_model.common.common_prompts import payslip_bible_cotizations_prompt_yaml, payslip_example_output
 
 
 system_prompt = """
@@ -242,7 +242,7 @@ Each item must have ALL these fields:
 *   **`prorrata_pagas_extra_total`**: `number|null`. Total prorrata of extra pay (pagas extraordinarias prorrateadas). This is the annual extra pay divided across 12 months. Must be numeric if present.
     *   **Source**: Look for "PRORRATA PAGAS EXTRAS" or similar in the payslip totals section.
     *   **Optional**: If not found in the document, set to `null`.
-    *   **Calculation Rule**: If not explicitly found, you may need to calculate it from the base or extract from employer contributions section. If calculation is not possible, set to `null`.
+        -   **DO NOT CALCULATE** `prorrata_pagas_extra_total`. If the value is not explicitly written as a number in the document, set it to `null`. Do not attempt to derive it from other bases or totals.
 *   **`base_contingencias_comunes_total`**: `number|null`. Total base for Common Contingencies (Base de Cotización por Contingencias Comunes). Must be numeric if present.
     *   **Source**: Look for "BASE CONTINGENCIAS COMUNES", "BASE CC", or similar in the payslip.
     *   **Optional**: If not found in the document, set to `null`.
@@ -275,16 +275,21 @@ Each item must have ALL these fields:
 
 #### **8. `warnings` Array**
 *   Add a warning string **only if you perform a modification or a calculation**.
-*   **Use only the following standardized English warning messages**:
+*   **Try to use the following standardized English warning messages**:
     *   If you correct the name format: `"Standardized the format of the worker's name."`
     *   If you correct the SS Number format: `"Standardized the format of the Social Security Affiliation Number."`
     *   If a total was calculated: `"The value 'aportacion_empresa_total' was not found and has been calculated by summing its components."`
     *   If you move a garnishment concept: `"The concept '[CONCEPT_NAME]' has been moved from earnings to deductions because it is a garnishment."`
+    *   etc,etc.
+    *   Also, very **IMPORTANT** to add warnings for things like:
+        - Any correction or assumption you make, please inform that! (Explain the reasoning behind that correction or assumption)
+        - If you detect errors or missing info in the payslip or settlement document, please inform that! Very important! (Explain the reasoning behind that error)
 
 ### **MANDATORY SPECIAL LOGIC**
-
 1.  **"EMBARGO" (Garnishment) Concept**: If you detect a concept in `devengo_items` that contains the word "EMBARGO", you **MUST move the entire object** from the `devengo_items` array to the `deduccion_items` array. Add the corresponding warning.
 2.  **Days in Period**: If the `dias` field in the payslip is 31 and the OCR system extracts 30, **do not modify it and do not add any warning**. Leave it as 30.
+3.  **NO PRORRATA CALCULATION**: Under NO circumstances should you calculate `prorrata_pagas_extra_total` by subtracting figures or using formulas. This is a hard constraint. If the number is not explicitly printed, the value MUST be `null`.
+4.  **NO INFERRED TOTALS**: The rule "Any correction or assumption you make, please inform that" DOES NOT APPLY to missing totals. If a total is missing, do not assume it, do not calculate it (except for employer contributions as specified), just set it to `null`.
 
 ### Additional Clues and format:
 TIPO_RANGES = {
@@ -296,12 +301,16 @@ TIPO_RANGES = {
 }
 
 ### Summary of SS cotizations, IRPF and Especies
-"""+payslip_bible_cotizations_prompt+"""
+Esta es la biblia de las cotizaciones, IRPF y especies. Use it to help you with the parsing nad assigning the correct item types.
+"""+payslip_bible_cotizations_prompt_yaml+"""
 
 ## Example of parsing output:
 """+ payslip_example_output + """
 
 The user will provide you with a payslip file (PDF base64) and the raw unstructured text of the payslip. Use mainly the file to parse the payslip and use the text basically as a reference to help you with the parsing.
+
+## IMPORTANT:
+DO NOT HALUCINATE ANY INFORMATION. IF YOU ARE NOT SURE ABOUT SOMETHING, SET THE VALUE TO `null`.
 
 ### **FINAL OUTPUT FORMAT**
 

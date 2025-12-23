@@ -93,7 +93,6 @@ def create_payroll(
             employee_id=employee_id,
             type=_normalize_payroll_type(payroll_type),
             periodo=periodo_clean,
-            type=type,
             devengo_total=_decimal(totals.get("devengo_total")),
             deduccion_total=_decimal(totals.get("deduccion_total")),
             aportacion_empresa_total=_decimal(totals.get("aportacion_empresa_total")),
