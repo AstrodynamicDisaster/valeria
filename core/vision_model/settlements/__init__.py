@@ -14,7 +14,6 @@ from core.vision_model.settlements.settlement_models import (
     SettlementData,
     Empresa,
     Trabajador,
-    SettlementItem,
 )
 
 __all__ = [
@@ -28,6 +27,5 @@ __all__ = [
     "SettlementData",
     "Empresa",
     "Trabajador",
-    "SettlementItem",
 ]
 

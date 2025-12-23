@@ -127,7 +127,7 @@ def process_document(
                     company = parsed_data.empresa.razon_social if parsed_data.empresa else None
                     # Use classification to distinguish payslip from payslip+settlement
                     if document_type == "payslip+settlement":
-                        doc_type = "PAYSLIP_FINIQUITO"
+                        doc_type = "PAYSLIP_SETTLEMENT"
                     else:
                         doc_type = "PAYSLIP"
                     # Use "hasta" date for payslips
@@ -452,13 +452,14 @@ def main(config: Optional[Dict[str, Any]] = None):
 if __name__ == "__main__":
     # Example usage with dict config
     config = {
-        "input_path": "nominas_tepuy_nov.pdf", # "core/vision_model/tests/sample_docs",  # Change this to your path
+        # "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
+        "input_path": "core/vision_model/tests/sample_docs/nominas_tepuy_nov.pdf",
         "output_dir": "processed_documents",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",
         "classification_provider": "gemini",
         "classification_model": "gemini-3-flash-preview",
-        "delay": 2,
+        "delay": 3,
     }
     
     main(config)

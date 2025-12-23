@@ -35,6 +35,7 @@ def create_payroll(
     totals: Optional[Mapping[str, Any]] = None,
     payroll_lines: Optional[Iterable[Mapping[str, Any]]] = None,
     warnings: Union[str, Iterable[str], None] = None,
+    type: str = "payslip",
 ) -> dict:
     """
     Minimal helper to persist a payroll plus its line items.
@@ -83,6 +84,7 @@ def create_payroll(
         payroll = Payroll(
             employee_id=employee_id,
             periodo=periodo_clean,
+            type=type,
             devengo_total=_decimal(totals.get("devengo_total")),
             deduccion_total=_decimal(totals.get("deduccion_total")),
             aportacion_empresa_total=_decimal(totals.get("aportacion_empresa_total")),
@@ -111,6 +113,7 @@ def create_payroll(
                 payroll_id=payroll.id,
                 category=str(category),
                 concept=str(concept),
+                raw_concept=str(item.get("raw_concept") or concept),
                 amount=_decimal(amount),
                 is_taxable_income=_bool(item.get("is_taxable_income")),
                 is_taxable_ss=_bool(item.get("is_taxable_ss")),

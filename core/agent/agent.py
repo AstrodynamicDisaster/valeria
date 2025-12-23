@@ -1271,6 +1271,7 @@ class ValeriaAgent:
                                 payroll = Payroll(
                                     employee_id=employee.id,
                                     periodo=periodo_data or {},
+                                    type=emp_info.get('document_type', 'payslip'),
                                     devengo_total=totals.get('devengo_total'),
                                     deduccion_total=totals.get('deduccion_total'),
                                     aportacion_empresa_total=totals.get('aportacion_empresa_total'),
@@ -2594,6 +2595,7 @@ class ValeriaAgent:
             payroll = Payroll(
                 employee_id=employee_id,
                 periodo=periodo_payload,
+                type=kwargs.get('type', 'payslip'),
                 devengo_total=kwargs.get('devengo_total'),
                 deduccion_total=kwargs.get('deduccion_total'),
                 aportacion_empresa_total=kwargs.get('aportacion_empresa_total'),
@@ -2630,10 +2632,15 @@ class ValeriaAgent:
                         continue
 
                     is_taxable_income = item.get('is_taxable_income')
-                    if is_taxable_income is None and item.get('tributa_irpf') is not None:
+                    if is_taxable_income is None:
+                        is_taxable_income = item.get('ind_tributa_IRPF')
+                    if is_taxable_income is None:
                         is_taxable_income = item.get('tributa_irpf')
+
                     is_taxable_ss = item.get('is_taxable_ss')
-                    if is_taxable_ss is None and item.get('cotiza_ss') is not None:
+                    if is_taxable_ss is None:
+                        is_taxable_ss = item.get('ind_cotiza_ss')
+                    if is_taxable_ss is None:
                         is_taxable_ss = item.get('cotiza_ss')
                     is_sickpay = item.get('is_sickpay')
                     is_in_kind = item.get('is_in_kind')
@@ -2660,6 +2667,7 @@ class ValeriaAgent:
                         payroll_id=payroll.id,
                         category=category,
                         concept=str(concept),
+                        raw_concept=str(item.get('raw_concept') or item.get('concepto_raw') or concept),
                         amount=Decimal(str(amount)),
                         is_taxable_income=_bool_or_default(is_taxable_income),
                         is_taxable_ss=_bool_or_default(is_taxable_ss),

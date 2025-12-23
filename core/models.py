@@ -7,7 +7,7 @@ These models are used at runtime by the application.
 
 from datetime import datetime
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON, Numeric,
+    Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric,
     String, Text
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -192,6 +192,12 @@ class Payroll(Base):
     # Period information stored as delivered by the extractor
     periodo = Column(JSON, nullable=False)
 
+    type = Column(
+        Enum("payslip", "settlement", "hybrid", name="payroll_type"),
+        nullable=False,
+        default="payslip",
+    )
+
     # Totals captured explicitly to avoid nested JSON
     devengo_total = Column(Numeric(12, 2), nullable=False)
     deduccion_total = Column(Numeric(12, 2), nullable=False)
@@ -205,6 +211,10 @@ class Payroll(Base):
 
     # Free-form warnings list serialized as text (JSON string or newline separated)
     warnings = Column(Text)
+
+    # Metadata for merged payrolls (from multiple pages)
+    is_merged = Column(Boolean, default=False)  # True if this payroll was merged from multiple parts
+    merged_from_files = Column(Text)  # JSON array of source JSON filenames, if merged
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
@@ -224,6 +234,7 @@ class PayrollLine(Base):
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'), nullable=False)
     category = Column(String, nullable=False)  # devengo, deduccion, aportacion_empresa
     concept = Column(Text, nullable=False)
+    raw_concept = Column(Text)
     amount = Column(Numeric(12, 2), nullable=False)
     is_taxable_income = Column(Boolean, nullable=False)
     is_taxable_ss = Column(Boolean, nullable=False)
@@ -338,5 +349,5 @@ def get_active_employee_period(employee_id: int, session) -> EmployeePeriod:
     return session.query(EmployeePeriod).filter(
         EmployeePeriod.employee_id == employee_id,
         EmployeePeriod.period_type == 'alta',
-        EmployeePeriod.period_end_date == None
+        EmployeePeriod.period_end_date is None
     ).order_by(desc(EmployeePeriod.period_begin_date)).first()

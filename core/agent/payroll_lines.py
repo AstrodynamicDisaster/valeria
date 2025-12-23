@@ -75,12 +75,18 @@ def build_payroll_lines(
                 continue
 
             is_taxable_income = _bool_or_default(item.get("is_taxable_income") if isinstance(item, Mapping) else None)
-            if not is_taxable_income and isinstance(item, Mapping) and item.get("tributa_irpf") is not None:
-                is_taxable_income = _bool_or_default(item.get("tributa_irpf"))
+            if not is_taxable_income and isinstance(item, Mapping):
+                if item.get("ind_tributa_IRPF") is not None:
+                    is_taxable_income = _bool_or_default(item.get("ind_tributa_IRPF"))
+                elif item.get("tributa_irpf") is not None:
+                    is_taxable_income = _bool_or_default(item.get("tributa_irpf"))
 
             is_taxable_ss = _bool_or_default(item.get("is_taxable_ss") if isinstance(item, Mapping) else None)
-            if not is_taxable_ss and isinstance(item, Mapping) and item.get("cotiza_ss") is not None:
-                is_taxable_ss = _bool_or_default(item.get("cotiza_ss"))
+            if not is_taxable_ss and isinstance(item, Mapping):
+                if item.get("ind_cotiza_ss") is not None:
+                    is_taxable_ss = _bool_or_default(item.get("ind_cotiza_ss"))
+                elif item.get("cotiza_ss") is not None:
+                    is_taxable_ss = _bool_or_default(item.get("cotiza_ss"))
 
             is_sickpay = _bool_or_default(item.get("is_sickpay") if isinstance(item, Mapping) else None)
             is_in_kind = _bool_or_default(item.get("is_in_kind") if isinstance(item, Mapping) else None)
@@ -93,6 +99,7 @@ def build_payroll_lines(
                 payroll_id=payroll_id,
                 category=category,
                 concept=str(concept),
+                raw_concept=str(item.get("raw_concept") or item.get("concepto_raw") or concept),
                 amount=_decimal_or_none(amount) or Decimal("0.00"),
                 is_taxable_income=is_taxable_income,
                 is_taxable_ss=is_taxable_ss,

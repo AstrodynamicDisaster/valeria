@@ -142,7 +142,7 @@ class BaseSettlementParser(ABC):
         """
         data_dict = self.parse_to_dict(pdf_bytes, text_pdf)
         settlement_data = SettlementData(**data_dict)
-        settlement_data.verify_and_correct_total()
+        settlement_data.verify_and_correct_totals()
         return settlement_data
 
 
@@ -344,7 +344,7 @@ class GeminiSettlementParser(BaseSettlementParser):
         
         # Configure thinking config based on model version
         if _is_gemini_3_model(self.model):
-            thinking_config = types.ThinkingConfig(thinking_level="LOW")
+            thinking_config = types.ThinkingConfig(thinking_level="low")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=self.thinking_budget)
         

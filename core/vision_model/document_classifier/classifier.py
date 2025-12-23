@@ -50,7 +50,7 @@ Key indicators:
 - Contains salary breakdown with multiple items
 - Does NOT contain termination/settlement information
 
-**2. SETTLEMENT (finiquito/liquidación) - Standalone termination document**
+**2. SETTLEMENT - Standalone termination document**
 Key indicators:
 - Contains ONLY "FINIQUITO", "LIQUIDACIÓN" as the main document type
 - Contains "FECHA CESE", "CAUSA" (termination date/reason)
@@ -59,7 +59,7 @@ Key indicators:
 - Shows settlement items like vacation pay, extra pay, indemnization
 - Does NOT contain a full payroll structure (devengos, deducciones, aportaciones empresa)
 
-**3. PAYSLIP+SETTLEMENT (nómina con finiquito) - Combined document**
+**3. PAYSLIP+SETTLEMENT - Combined document (nómina con finiquito)**
 Key indicators:
 - Contains BOTH payroll structure AND settlement/termination information
 - Has "DEVENGOS", "DEDUCCIONES", "APORTACIONES EMPRESA" sections (like a payslip)
@@ -224,7 +224,7 @@ class DocumentClassifier:
         
         # Configure thinking config based on model version
         if _is_gemini_3_model(self.model):
-            thinking_config = types.ThinkingConfig(thinking_level="LOW")
+            thinking_config = types.ThinkingConfig(thinking_level="minimal")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=200)
         

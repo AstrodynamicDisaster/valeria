@@ -28,6 +28,7 @@ Below is the JSON schema you must generate, along with strict formatting and log
  "deduccion_items": [],
  "aportacion_empresa_items": [],
  "totales": {},
+ "fecha_documento": "YYYY-MM-DD",
  "warnings": []
 }
 ```
@@ -102,15 +103,21 @@ Each item must have:
     * Set to `true` if the item is a garnishment/attachment (embargo)
     * This should be rare in devengo_items (garnishments are usually in deduccion_items)
     * If you see "EMBARGO" in the concept name, set this to `true`
-  - **ind_is_exento_IRPF**: `boolean` | `null`
-    * Set to `true` if the item is EXEMPT from IRPF withholding (e.g., dietas within limits, kilometraje within limits, certain social benefits)
-    * Set to `false` for items that ARE subject to IRPF (most regular earnings)
-    * Examples of exempt items: DIETAS (within legal limits), KILOMETRAJE (within limits), some in-kind benefits
+  - **ind_tributa_IRPF**: `boolean` | `null`
+    * Set to `true` if the item is subject to IRPF withholding (tributa al IRPF).
+    * Set to `false` if the item is EXEMPT (e.g., dietas within limits, kilometraje within limits, certain social benefits).
+    * Most regular earnings are `true`.
+    * Examples of exempt items (`false`): DIETAS (within legal limits), KILOMETRAJE (within limits), some in-kind benefits.
   - **ind_cotiza_ss**: `boolean` | `null`
     * Set to `true` if the item contributes to Social Security (cotiza a la Seguridad Social)
     * Most regular earnings cotiza. Set to `false` for items that don't contribute (some in-kind benefits, certain allowances)
     * Examples of items that cotiza: SALARIO BASE, INCENTIVOS, NOCTURNIDAD, PAGA EXTRA
     * Examples of items that may NOT cotiza: DIETAS, KILOMETRAJE (within limits)
+  - **ind_settlement_item**: `boolean` | `null`
+    * Set to `true` if this item is related to a settlement (liquidación)
+    * Common settlement items: "VACACIONES NO DISFRUTADAS", "INDEMNIZACIÓN", "PARTE PROPORCIONAL VACACIONES", "PARTE PROPORCIONAL PAGA EXTRA", "FINIQUITO", "LIQUIDACIÓN"
+    * Set to `false` for regular payroll items (standard salary, bonuses, etc.)
+    * This field helps identify which items are part of a termination settlement
 
 ##### 4.2 Fields in deduccion_items (Deductions)
 Each item must have:
@@ -165,13 +172,18 @@ Each item must have:
   - **ind_is_embargo**: `boolean` | `null`
     * Set to `true` if the deduction is a garnishment/attachment (embargo)
     * Look for concepts like "EMBARGO", "RETENCIÓN JUDICIAL", "EMBARGO SALARIAL"
-  - **ind_is_exento_IRPF**: `boolean` | `null`
-    * Set to `true` if this deduction is exempt from IRPF calculation
-    * Most deductions are NOT exempt (they are part of the IRPF calculation)
-    * Set to `false` for standard deductions
+  - **ind_tributa_IRPF**: `boolean` | `null`
+    * **CRITICAL FOR DEDUCTIONS**: This should MOST of the times be `false` for deductions (there might be weird exceptions, consider that).
+    * Deductions (like IRPF withholding or SS contributions/cotizaciones) are substractions, they are NOT taxable income.
+    * Set to `false` for standard deductions.
   - **ind_cotiza_ss**: `boolean` | `null`
     * Set to `true` if the deduction substracts from Social Security contributions
     * Most of the time it will be `false`.
+  - **ind_settlement_item**: `boolean` | `null`
+    * Set to `true` if this deduction item is related to a settlement (liquidación)
+    * Common finiquito deductions: deductions related to settlement payments, termination-related deductions
+    * Set to `false` for regular deduction items (IRPF, Social Security, etc.)
+    * This field helps identify which items are part of a termination settlement
 
 If you spot any other concept that is not in the list, keep it as extracted but normalize spaces and case.
 
@@ -248,13 +260,20 @@ Each item must have ALL these fields:
     *   **Optional**: If not found in the document, set to `null`.
     *   **Format Rule**: Store as a number (e.g., 5.98 for 5.98%), not as a percentage string.
     *   This is the overall IRPF retention percentage applied to the base.
-*   **`contains_finiquito`**: `boolean|null`. Indicates whether this payslip contains any finiquito/settlement items.
-    *   **Logic Rule**: Set to `true` if the payslip contains concepts related to finiquito/liquidación (e.g., "VACACIONES NO DISFRUTADAS", "INDEMNIZACIÓN", "FINIQUITO", "LIQUIDACIÓN").
+*   **`contains_settlement`**: `boolean|null`. Indicates whether this payslip contains any settlement items.
+    *   **Logic Rule**: Set to `true` if the payslip contains concepts related to settlement/liquidación (e.g., "VACACIONES NO DISFRUTADAS", "INDEMNIZACIÓN", "FINIQUITO", "LIQUIDACIÓN").
     *   **Logic Rule**: Set to `false` for regular monthly payslips with no settlement-related items.
     *   **Default**: `false` for standard monthly payslips.
     *   **Optional**: Set to `null` if unable to determine.
 
-#### **7. `warnings` Array**
+#### **7. `fecha_documento` Field**
+*   **`fecha_documento`**: `string|null`. Date when the document was signed/issued (YYYY-MM-DD format).
+    *   **Source**: Look for dates in the document header, footer, or signature area that indicate when the payslip was issued or signed.
+    *   **Format Rule**: Must be in "YYYY-MM-DD" format (e.g., "2025-11-30").
+    *   **Optional**: If no date is found or unclear, set to `null`.
+    *   **Note**: This is different from the `periodo` dates - `fecha_documento` is when the document was created/issued, while `periodo` is the payroll period being paid.
+
+#### **8. `warnings` Array**
 *   Add a warning string **only if you perform a modification or a calculation**.
 *   **Use only the following standardized English warning messages**:
     *   If you correct the name format: `"Standardized the format of the worker's name."`

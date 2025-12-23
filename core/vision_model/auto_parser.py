@@ -142,7 +142,7 @@ class AutoParser:
         # Step 2: Route to appropriate parser
         if document_type == "payslip" or document_type == "payslip+settlement":
             # Both payslip and payslip+settlement use the payslip parser
-            # payslip+settlement has contains_finiquito=true in the parsed data
+            # payslip+settlement has contains_settlement=true in the parsed data
             parser = self._get_payslip_parser()
             parsed_data = parser.parse_to_model(pdf_bytes, text_doc)
         elif document_type == "settlement":
@@ -221,7 +221,7 @@ class AutoParser:
             parser = self._get_settlement_parser()
             data_dict, usage_info = parser.parse_with_usage(pdf_bytes, text_doc)
             parsed_data = SettlementData(**data_dict)
-            parsed_data.verify_and_correct_total()
+            parsed_data.verify_and_correct_totals()
         elif document_type == "other":
             raise UnsupportedDocumentTypeError(
                 f"Document classified as '{document_type}'. Skipping processing. "

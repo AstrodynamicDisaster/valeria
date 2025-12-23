@@ -51,12 +51,12 @@ Vacaciones disfrutadas no generadas;Totales;TRUE;TRUE;FALSE
 Ajuste - Descuento error previo;Totales;TRUE;TRUE;FALSE
 Ajuste - Descuento error horas;Totales;TRUE;TRUE;FALSE
 Ajuste Positivo;Totales;TRUE;TRUE;FALSE
-Seguro Medico Trabajador;Toatles;1;-;-;TRUE
-Seguro Medico Exento;Totales;-;-;TRUE
-Seguro Accidentes;Totales;-;-;TRUE
-Paga extra prorrateada;Totales;RUE;TRUE;FALSE
-Subida convenio Pendiente;Totales;RUE;TRUE;FALSE
-Regularizacion meses anteriores;Totales;RUE;TRUE;FALSE
+Seguro Medico Trabajador;Totales;TRUE;FALSE;TRUE
+Seguro Medico Exento;Totales;FALSE;FALSE;TRUE
+Seguro Accidentes;Totales;FALSE;FALSE;TRUE
+Paga extra prorrateada;Totales;TRUE;TRUE;FALSE
+Subida convenio Pendiente;Totales;TRUE;TRUE;FALSE
+Regularizacion meses anteriores;Totales;TRUE;TRUE;FALSE
 Regularizacion meses anteriores;Totales;TRUE;TRUE;FALSE
 Propinas - C/IRPF;Totales;FALSE;TRUE;FALSE
 Propinas - S/IRPF;Totales;FALSE;FALSE;FALSE
@@ -92,7 +92,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -106,7 +106,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -120,7 +120,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -134,7 +134,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -148,7 +148,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -162,7 +162,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -176,7 +176,7 @@ payslip_example_output = """
     "ind_is_IT_IL": true,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   },
@@ -190,7 +190,7 @@ payslip_example_output = """
     "ind_is_IT_IL": true,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": true,
     "ind_cotiza_ss": true
    }
   }
@@ -206,7 +206,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": false,
     "ind_cotiza_ss": false
    }
   },
@@ -220,7 +220,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": false,
     "ind_cotiza_ss": false
    }
   },
@@ -234,7 +234,7 @@ payslip_example_output = """
     "ind_is_IT_IL": false,
     "ind_is_anticipo": false,
     "ind_is_embargo": false,
-    "ind_is_exento_IRPF": false,
+    "ind_tributa_IRPF": false,
     "ind_cotiza_ss": false
    }
   }
@@ -286,8 +286,9 @@ payslip_example_output = """
   "base_accidente_de_trabajo_y_desempleo_total": 1557.19,
   "base_retencion_irpf_total": 1103.43,
   "porcentaje_retencion_irpf": 2.89,
-  "contains_finiquito": false
+  "contains_settlement": false
  },
+ "fecha_documento": "2025-05-31",
  "warnings": [
   "Standardized the format of the worker's name.",
   "Standardized the format of the Social Security Affiliation Number.",

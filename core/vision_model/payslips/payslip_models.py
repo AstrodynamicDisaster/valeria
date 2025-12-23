@@ -46,7 +46,7 @@ class ItemType(BaseModel):
     )
     ind_is_IT_IL: Optional[bool] = Field(
         None,
-        description="True if corresponds to IT/IL (Incapacidad Temporal/Invalidez Laboral)"
+        description="True if corresponds to IT/IL (Incapacidad Temporal/Invalidez Laboral), sickpay or other disability related items"
     )
     ind_is_anticipo: Optional[bool] = Field(
         None,
@@ -54,15 +54,19 @@ class ItemType(BaseModel):
     )
     ind_is_embargo: Optional[bool] = Field(
         None,
-        description="True if this item is a garnishment/attachment (embargo)"
+        description="True if this item is a garnishment/attachment/seizure (embargo)"
     )
-    ind_is_exento_IRPF: Optional[bool] = Field(
+    ind_tributa_IRPF: Optional[bool] = Field(
         None,
-        description="True if this item is exempt from IRPF withholding (e.g., dietas, kilometraje within limits)"
+        description="True if this item is subject to IRPF withholding (tributa al IRPF). Most earnings are True. Exempt items like dietas are False."
     )
     ind_cotiza_ss: Optional[bool] = Field(
         None,
         description="True if this item contributes to Social Security (cotiza a la Seguridad Social)"
+    )
+    ind_settlement_item: Optional[bool] = Field(
+        None,
+        description="True if this item is related to a settlement item"
     )
 
 
@@ -152,10 +156,10 @@ class Totales(BaseModel):
     # % Retención IRPF (top level de payroll line)
     porcentaje_retencion_irpf: Optional[float] = Field(None, description="Percentage for IRPF")
     
-    # Finiquito indicator
-    contains_finiquito: Optional[bool] = Field(
+    # Settlement indicator
+    contains_settlement: Optional[bool] = Field(
         None,
-        description="Whether this payslip contains any finiquito/settlement items"
+        description="Whether this payslip contains any settlement/termination/finiquito items"
     )
     
     @field_validator('devengo_total', 'deduccion_total', 'liquido_a_percibir', 'aportacion_empresa_total', mode='before')
@@ -188,6 +192,8 @@ class PayslipData(BaseModel):
     )
 
     totales: Totales = Field(..., description="Totals section")
+
+    fecha_documento: Optional[str] = Field(None, description="Date of the document (YYYY-MM-DD), when the document was signed/issued")
     
     warnings: List[str] = Field(
         default_factory=list,

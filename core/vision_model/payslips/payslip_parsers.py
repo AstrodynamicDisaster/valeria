@@ -371,7 +371,7 @@ class GeminiPayslipParser(BasePayslipParser):
 
         # Configure thinking config based on model version
         if _is_gemini_3_model(self.model):
-            thinking_config = types.ThinkingConfig(thinking_level="LOW")
+            thinking_config = types.ThinkingConfig(thinking_level="low")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=self.thinking_budget)
         
