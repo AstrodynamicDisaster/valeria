@@ -29,8 +29,8 @@ from sqlalchemy.orm import sessionmaker
 
 from core.database import create_database_engine
 from core.models import Client
-from core.agent.state import ProcessingState, VidaLaboralContext
-from core.agent import vida_laboral
+import core.vida_laboral as vida_laboral
+from core.vida_laboral import VidaLaboralContext
 
 
 def process_vida_laboral_csv(
@@ -83,9 +83,7 @@ def process_vida_laboral_csv(
         print(f"{'='*70}\n")
 
         # Create context
-        processing_state = ProcessingState(client_id=client.id)
         context = VidaLaboralContext(
-            processing_state=processing_state,
             create_employees=create_employees
         )
 

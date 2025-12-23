@@ -189,6 +189,12 @@ class Payroll(Base):
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
 
+    type = Column(
+        Enum("payslip", "settlement", "hybrid", name="payroll_type"),
+        nullable=False,
+        default="payslip",
+    )
+
     # Period information stored as delivered by the extractor
     periodo = Column(JSON, nullable=False)
 

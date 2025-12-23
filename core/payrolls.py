@@ -35,7 +35,7 @@ def create_payroll(
     totals: Optional[Mapping[str, Any]] = None,
     payroll_lines: Optional[Iterable[Mapping[str, Any]]] = None,
     warnings: Union[str, Iterable[str], None] = None,
-    type: str = "payslip",
+    payroll_type: Optional[str] = None,
 ) -> dict:
     """
     Minimal helper to persist a payroll plus its line items.
@@ -49,6 +49,14 @@ def create_payroll(
     """
     totals = totals or {}
     payroll_lines = list(payroll_lines or [])
+
+    def _normalize_payroll_type(value: Optional[str]) -> str:
+        if value is None:
+            return "payslip"
+        normalized = str(value).strip().lower()
+        if normalized in {"payslip", "settlement", "hybrid"}:
+            return normalized
+        return "payslip"
 
     try:
         employee = session.query(Employee).get(employee_id)
@@ -83,6 +91,7 @@ def create_payroll(
 
         payroll = Payroll(
             employee_id=employee_id,
+            type=_normalize_payroll_type(payroll_type),
             periodo=periodo_clean,
             type=type,
             devengo_total=_decimal(totals.get("devengo_total")),

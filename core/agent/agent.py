@@ -318,6 +318,11 @@ class ValeriaAgent:
                                 },
                                 "required": ["desde", "hasta"]
                             },
+                            "type": {
+                                "type": "string",
+                                "description": "Payroll type: payslip, settlement, or hybrid",
+                                "enum": ["payslip", "settlement", "hybrid"]
+                            },
                             "devengo_total": {
                                 "type": "number",
                                 "description": "Total earnings (devengos)"
@@ -1242,6 +1247,21 @@ class ValeriaAgent:
                                 warnings_list = emp_info.get('warnings') or []
                                 warnings_text = json.dumps(warnings_list, ensure_ascii=False) if warnings_list else None
 
+                                def _normalize_payroll_type(value):
+                                    if value is None:
+                                        return None
+                                    normalized = str(value).strip().lower()
+                                    if normalized == "payslip+settlement":
+                                        return "hybrid"
+                                    if normalized in {"payslip", "settlement", "hybrid"}:
+                                        return normalized
+                                    return None
+
+                                payroll_type = _normalize_payroll_type(emp_info.get("type") or emp_info.get("document_type"))
+                                if payroll_type is None:
+                                    contains_finiquito = emp_info.get("contains_finiquito")
+                                    payroll_type = "hybrid" if contains_finiquito else "payslip"
+
                                 def _decimal_or_default(value, default: Decimal = Decimal("0.00")) -> Decimal:
                                     if value is None:
                                         return default
@@ -1270,6 +1290,7 @@ class ValeriaAgent:
 
                                 payroll = Payroll(
                                     employee_id=employee.id,
+                                    type=payroll_type,
                                     periodo=periodo_data or {},
                                     type=emp_info.get('document_type', 'payslip'),
                                     devengo_total=totals.get('devengo_total'),
@@ -2592,8 +2613,17 @@ class ValeriaAgent:
                 except Exception:
                     return default
 
+            def _normalize_payroll_type(value: Any) -> str:
+                if value is None:
+                    return "payslip"
+                normalized = str(value).strip().lower()
+                if normalized in {"payslip", "settlement", "hybrid"}:
+                    return normalized
+                return "payslip"
+
             payroll = Payroll(
                 employee_id=employee_id,
+                type=_normalize_payroll_type(kwargs.get('type')),
                 periodo=periodo_payload,
                 type=kwargs.get('type', 'payslip'),
                 devengo_total=kwargs.get('devengo_total'),
@@ -2772,6 +2802,7 @@ class ValeriaAgent:
                 'base_at_ep',
                 'base_irpf',
                 'tipo_irpf',
+                'type',
                 'warnings'
             ]
 
@@ -2780,6 +2811,14 @@ class ValeriaAgent:
                     if field == 'warnings':
                         if isinstance(new_value, list):
                             new_value = json.dumps(new_value, ensure_ascii=False)
+                    if field == 'type':
+                        normalized = str(new_value).strip().lower() if new_value is not None else None
+                        if normalized == "payslip+settlement":
+                            new_value = "hybrid"
+                        elif normalized in {"payslip", "settlement", "hybrid"}:
+                            new_value = normalized
+                        else:
+                            continue
                     if field == 'periodo' and isinstance(new_value, dict):
                         new_value = {k: v for k, v in new_value.items() if v is not None}
 
@@ -3195,6 +3234,8 @@ class ValeriaAgent:
         for payroll in payrolls:
             lines.append(f"  • Payroll #{payroll.id}")
             lines.append(f"    Employee ID: {payroll.employee_id}")
+            if payroll.type:
+                lines.append(f"    Type: {payroll.type}")
             lines.append(f"    Period: {format_periodo(payroll.periodo)}")
             if payroll.devengo_total is not None:
                 lines.append(f"    Devengo total: €{float(payroll.devengo_total):.2f}")
