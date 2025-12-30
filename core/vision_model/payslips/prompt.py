@@ -242,7 +242,7 @@ Each item must have ALL these fields:
 *   **`prorrata_pagas_extra_total`**: `number|null`. Total prorrata of extra pay (pagas extraordinarias prorrateadas). This is the annual extra pay divided across 12 months. Must be numeric if present.
     *   **Source**: Look for "PRORRATA PAGAS EXTRAS" or similar in the payslip totals section.
     *   **Optional**: If not found in the document, set to `null`.
-        -   **DO NOT CALCULATE** `prorrata_pagas_extra_total`. If the value is not explicitly written as a number in the document, set it to `null`. Do not attempt to derive it from other bases or totals.
+        -   **DO NOT CALCULATE** `prorrata_pagas_extra_total`. If the value is not explicitly written as a number in the document, set it to `null`. Do not attempt to derive by summing/substracting it from other bases or totals. Only set it if it is present in the document as a devengo item!
 *   **`base_contingencias_comunes_total`**: `number|null`. Total base for Common Contingencies (Base de Cotización por Contingencias Comunes). Must be numeric if present.
     *   **Source**: Look for "BASE CONTINGENCIAS COMUNES", "BASE CC", or similar in the payslip.
     *   **Optional**: If not found in the document, set to `null`.

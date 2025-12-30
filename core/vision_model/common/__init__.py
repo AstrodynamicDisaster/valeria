@@ -16,6 +16,7 @@ from core.vision_model.common.compare_json import (
 
 from core.vision_model.common.utils import (
     get_page_as_pdf,
+    get_pdf_bytes_and_text,
     find_pdf_files,
     sanitize_filename,
     generate_output_filename,
@@ -32,6 +33,7 @@ __all__ = [
     "compare_json",
     # Utilities
     "get_page_as_pdf",
+    "get_pdf_bytes_and_text",
     "find_pdf_files",
     "sanitize_filename",
     "generate_output_filename",
