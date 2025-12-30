@@ -37,3 +37,5 @@ core/vision_model/tests/test_executions/**.json
 processed_documents/*
 legacy/*
 parsing/*
+docs_to_process/**
+processed_documents_1_page/**

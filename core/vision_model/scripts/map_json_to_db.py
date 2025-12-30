@@ -209,6 +209,7 @@ def get_payroll_key(payroll: Dict[str, Any]) -> Optional[tuple]:
 def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Mergea múltiples nóminas del mismo trabajador y periodo en una sola.
+    Aplica de-duplicación inteligente de items y sumas de totales.
     
     Args:
         payrolls: Lista de nóminas a mergear (debe tener al menos 1)
@@ -225,18 +226,23 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Usar la primera nómina como base
     base = payrolls[0].copy()
     
-    # Recopilar todos los archivos fuente
+    # Recopilar metadatos
     source_files = []
     all_warnings = []
     total_processing_time = 0.0
     total_parsing_cost = 0.0
     
-    # Inicializar listas de items por categoría
-    all_devengo_items = []
-    all_deduccion_items = []
-    all_aportacion_items = []
+    # Sets para de-duplicación de items
+    # Guardamos una huella: (categoría, concepto_raw, concepto_std, importe)
+    seen_items = set()
+    unique_payroll_lines = []
     
-    # Procesar todas las nóminas (incluyendo la base)
+    # Acumuladores para totales (solo si son distintos)
+    devengo_vals = set()
+    deduccion_vals = set()
+    aportacion_vals = set()
+    
+    # Procesar todas las nóminas
     for payroll in payrolls:
         source_file = payroll.get("source_json_file", "")
         if source_file:
@@ -247,40 +253,51 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
         total_processing_time += (payroll.get("processing_time") or 0.0)
         total_parsing_cost += (payroll.get("parsing_cost") or 0.0)
         
-        # Agregar items de esta nómina
+        # 1. De-duplicación de items (líneas de la nómina)
         for item in payroll.get("payroll_lines", []):
-            if item["category"] == "devengo":
-                all_devengo_items.append(item)
-            elif item["category"] == "deduccion":
-                all_deduccion_items.append(item)
-            elif item["category"] == "aportacion_empresa":
-                all_aportacion_items.append(item)
+            # Normalizamos strings para la comparación
+            raw_c = (item.get("raw_concept") or "").strip().upper()
+            std_c = (item.get("concept") or "").strip().upper()
+            amount = round(float(item.get("amount", 0)), 2)
+            
+            item_fingerprint = (item["category"], raw_c, std_c, amount)
+            
+            if item_fingerprint not in seen_items:
+                seen_items.add(item_fingerprint)
+                unique_payroll_lines.append(item)
+        
+        # 2. Recopilar totales para decidir si sumar o no
+        d_val = round(float(payroll.get("devengo_total", 0)), 2)
+        if d_val > 0:
+            devengo_vals.add(d_val)
+            
+        ded_val = round(float(payroll.get("deduccion_total", 0)), 2)
+        if ded_val > 0:
+            deduccion_vals.add(ded_val)
+            
+        ap_val = round(float(payroll.get("aportacion_empresa_total", 0)), 2)
+        if ap_val > 0:
+            aportacion_vals.add(ap_val)
     
-    # Recalcular totales sumando los items
-    def sum_items(items: List[Dict[str, Any]]) -> float:
-        return sum(item.get("amount", 0) for item in items)
+    # 3. Recalcular Totales de forma inteligente
+    # Si todos los totales de las partes son iguales (len(set) == 1), NO sumamos (es info repetida)
+    # Si son distintos, sumamos (son partes complementarias de una nómina dividida)
+    base["devengo_total"] = sum(devengo_vals) if len(devengo_vals) > 1 else (list(devengo_vals)[0] if devengo_vals else 0.0)
+    base["deduccion_total"] = sum(deduccion_vals) if len(deduccion_vals) > 1 else (list(deduccion_vals)[0] if deduccion_vals else 0.0)
+    base["aportacion_empresa_total"] = sum(aportacion_vals) if len(aportacion_vals) > 1 else (list(aportacion_vals)[0] if aportacion_vals else 0.0)
+    base["liquido_a_percibir"] = round(base["devengo_total"] - base["deduccion_total"], 2)
     
-    devengo_total = sum_items(all_devengo_items)
-    deduccion_total = sum_items(all_deduccion_items)
-    aportacion_total = sum_items(all_aportacion_items)
-    liquido_total = devengo_total - deduccion_total
+    # 4. Asignar líneas únicas (ordenadas por categoría para estética)
+    cat_order = {"devengo": 0, "deduccion": 1, "aportacion_empresa": 2}
+    base["payroll_lines"] = sorted(unique_payroll_lines, key=lambda x: cat_order.get(x["category"], 99))
     
-    # Actualizar base con valores mergeados
-    base["devengo_total"] = devengo_total
-    base["deduccion_total"] = deduccion_total
-    base["aportacion_empresa_total"] = aportacion_total
-    base["liquido_a_percibir"] = liquido_total
-    
-    # Combinar todos los items
-    base["payroll_lines"] = all_devengo_items + all_deduccion_items + all_aportacion_items
-    
-    # Añadir warning sobre el merge
-    merge_warning = f"Merged {len(payrolls)} payroll parts from files: {', '.join([f for f in source_files if f])}"
-    all_warnings.append(merge_warning)
-    base["warnings"] = all_warnings
+    # Añadir warning sobre el smart merge
+    items_removed = sum(len(p.get("payroll_lines", [])) for p in payrolls) - len(unique_payroll_lines)
+    merge_warning = f"Smart-merged {len(payrolls)} parts. Duplicated items removed: {items_removed}. Totals recalculated checking for redundancy."
+    base["warnings"] = list(set(all_warnings)) + [merge_warning]
     
     # Metadata del merge
-    base["merged_from"] = source_files
+    base["merged_from"] = list(set(source_files))
     base["merged_parts_count"] = len(payrolls)
     base["is_merged"] = True
     base["processing_time"] = total_processing_time
@@ -297,7 +314,7 @@ def merge_payrolls(payrolls: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     # Usar el primer source_file y page como referencia
     base["source_file"] = payrolls[0].get("source_file")
-    base["page"] = payrolls[0].get("page")
+    base["page"] = f"MERGED ({', '.join(str(p.get('page')) for p in payrolls)})"
     
     return base
 

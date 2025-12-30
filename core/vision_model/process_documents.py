@@ -13,6 +13,7 @@ from core.vision_model.common import (
     calculate_cost,
     find_pdf_files,
     get_page_as_pdf,
+    get_pdf_bytes_and_text,
     generate_output_filename,
 )
 
@@ -22,6 +23,8 @@ def process_document(
     parser: AutoParser,
     output_dir: Path,
     delay_seconds: float = 1.0,
+    doc_index: int = 1,
+    total_docs: int = 1,
 ) -> Dict[str, Any]:
     """
     Process a PDF document with all its pages.
@@ -31,12 +34,14 @@ def process_document(
         parser: AutoParser instance
         output_dir: Directory to save results
         delay_seconds: Delay between API calls
+        doc_index: Current document index (1-based)
+        total_docs: Total number of documents to process
     
     Returns:
         Dictionary with processing results
     """
     print(f"\n{'='*80}")
-    print(f"Processing: {pdf_path.name}")
+    print(f"Processing document {doc_index}/{total_docs}: {pdf_path.name}")
     print(f"{'='*80}")
     
     doc = None
@@ -55,6 +60,120 @@ def process_document(
         "pages": []
     }
     
+    # Special case: 2 or 3-page PDFs are processed as a single document to preserve context
+    # (metadata on page 1, data on subsequent pages)
+    if total_pages in (2, 3):
+        print(f"\n📄 PDF of {total_pages} pages detected. Processing as a single document to preserve context...")
+        try:
+            # Get all pages as PDF bytes and text
+            pdf_bytes, text_pdf = get_pdf_bytes_and_text(str(pdf_path))
+            
+            # Parse with AutoParser
+            print("  🔍 Classifying and parsing full document...")
+            start_time = time.time()
+            
+            try:
+                parsed_data, classification_info, usage_info = parser.parse_with_usage(pdf_bytes, text_pdf)
+                processing_time = time.time() - start_time
+                
+                document_type = classification_info["document_type"]
+                confidence = classification_info.get("confidence", "unknown")
+                classification_time = usage_info.get("classification_time_seconds", 0.0)
+                parsing_time = processing_time - classification_time
+                
+                print(f"     ✅ Document type: {document_type.upper()} (confidence: {confidence})")
+                print(f"     ⏱️  Time: Total {processing_time:.2f}s (Classification: {classification_time:.2f}s | Parsing: {parsing_time:.2f}s)")
+                
+                # Calculate cost
+                total_tokens = usage_info.get('total_tokens', 0)
+                if total_tokens > 0:
+                    if parser.parsing_provider == "openai":
+                        pricing = get_openai_pricing(parser.parsing_model)
+                    else:
+                        pricing = get_gemini_pricing(parser.parsing_model)
+                    cost = calculate_cost(usage_info.get('input_tokens', 0), usage_info.get('output_tokens', 0), pricing.get("input", 0.0), pricing.get("output", 0.0))
+                else:
+                    cost = 0.0
+                
+                # Extract metadata for filename
+                date_for_filename = None
+                if isinstance(parsed_data, PayslipData):
+                    dni = parsed_data.trabajador.dni if parsed_data.trabajador else None
+                    employee_name = parsed_data.trabajador.nombre if parsed_data.trabajador else None
+                    company = parsed_data.empresa.razon_social if parsed_data.empresa else None
+                    doc_type = "PAYSLIP_SETTLEMENT" if document_type == "payslip+settlement" else "PAYSLIP"
+                    if parsed_data.periodo and parsed_data.periodo.hasta:
+                        date_for_filename = parsed_data.periodo.hasta
+                else:
+                    dni = parsed_data.trabajador.dni if parsed_data.trabajador else None
+                    employee_name = parsed_data.trabajador.nombre if parsed_data.trabajador else None
+                    company = parsed_data.empresa.razon_social if parsed_data.empresa else None
+                    doc_type = "SETTLEMENT"
+                    if parsed_data.fecha_liquidacion:
+                        date_for_filename = parsed_data.fecha_liquidacion
+                
+                # Generate filename (no page number for 2 or 3-page merges)
+                filename = generate_output_filename(
+                    document_type=doc_type,
+                    dni=dni,
+                    employee_name=employee_name,
+                    company=company,
+                    page_num=None,
+                    date=date_for_filename,
+                )
+                
+                output_path = output_dir / filename
+                
+                # Handle duplicate filenames
+                counter = 1
+                original_output_path = output_path
+                while output_path.exists():
+                    stem = original_output_path.stem
+                    output_path = output_dir / f"{stem}_{counter}.json"
+                    counter += 1
+                
+                # Prepare output data
+                page_range = f"1-{total_pages}"
+                output_data = {
+                    "source_pdf": pdf_path.name,
+                    "page": page_range,
+                    "total_pages": total_pages,
+                    "document_type": document_type,
+                    "classification": classification_info,
+                    "processing_time_seconds": processing_time,
+                    "parsing_usage": usage_info,
+                    "parsing_cost_usd": cost,
+                    "timestamp": datetime.now().isoformat(),
+                    "data": parsed_data.model_dump(),
+                }
+                
+                # Save to JSON
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(output_data, f, indent=2, ensure_ascii=False)
+                
+                print(f"     💾 Saved to: {output_path.name}")
+                
+                results["pages"].append({
+                    "page": page_range,
+                    "success": True,
+                    "document_type": document_type,
+                    "output_filename": output_path.name,
+                    "processing_time_seconds": processing_time,
+                    "parsing_cost_usd": cost,
+                })
+                return results
+
+            except Exception as e:
+                print(f"  ❌ Parsing failed for {total_pages}-page document: {e}")
+                results["pages"].append({"page": f"1-{total_pages}", "success": False, "error": str(e)})
+                return results
+                
+        except Exception as e:
+            print(f"  ❌ Error processing {total_pages}-page document: {e}")
+            results["pages"].append({"page": f"1-{total_pages}", "success": False, "error": str(e)})
+            return results
+
+    # Normal loop for other page counts
     for page_num in range(total_pages):
         print(f"\n📄 Processing page {page_num + 1}/{total_pages}...")
         
@@ -272,8 +391,33 @@ def main(config: Optional[Dict[str, Any]] = None):
     if not pdf_files:
         print(f"❌ No PDF files found in {input_path}")
         return
+
+    # Check for already processed documents in the output directory
+    processed_pdfs = set()
+    print(f"🔍 Checking already processed documents in {output_dir}...")
+    for json_file in output_dir.rglob("*.json"):
+        if json_file.name.startswith("processing_summary_"):
+            continue
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if "source_pdf" in data:
+                    processed_pdfs.add(data["source_pdf"])
+        except Exception:
+            continue
+            
+    if processed_pdfs:
+        original_count = len(pdf_files)
+        pdf_files = [f for f in pdf_files if f.name not in processed_pdfs]
+        skipped_count = original_count - len(pdf_files)
+        if skipped_count > 0:
+            print(f"⏭️  Skipping {skipped_count} already processed PDF file(s)")
     
-    print(f"📚 Found {len(pdf_files)} PDF file(s) to process")
+    if not pdf_files:
+        print("✅ All documents in the input path have already been processed.")
+        return
+
+    print(f"📚 Found {len(pdf_files)} new PDF file(s) to process")
     for pdf in pdf_files:
         print(f"   - {pdf.name}")
     
@@ -297,12 +441,15 @@ def main(config: Optional[Dict[str, Any]] = None):
     
     # Process each PDF
     all_results = []
-    for pdf_path in pdf_files:
+    total_docs = len(pdf_files)
+    for i, pdf_path in enumerate(pdf_files, 1):
         result = process_document(
             pdf_path,
             auto_parser,
             output_dir,
-            delay_seconds=config["delay"]
+            delay_seconds=config["delay"],
+            doc_index=i,
+            total_docs=total_docs
         )
         all_results.append(result)
     
@@ -453,7 +600,7 @@ if __name__ == "__main__":
     # Example usage with dict config
     config = {
         # "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
-        "input_path": "nominas_tepuy_nov.pdf",
+        "input_path": "docs_to_process/",
         "output_dir": "processed_documents",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",

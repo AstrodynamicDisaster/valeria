@@ -4,6 +4,44 @@ from typing import Tuple
 import re
 
 
+def get_pdf_bytes_and_text(pdf_path: str, from_page: int = None, to_page: int = None) -> Tuple[bytes, str]:
+    """
+    Get PDF bytes and extracted text for a specific range of pages (or the whole PDF).
+    
+    Args:
+        pdf_path: Path to PDF file
+        from_page: Starting page (0-indexed, inclusive)
+        to_page: Ending page (0-indexed, inclusive)
+    
+    Returns:
+        Tuple of (pdf_bytes, text_pdf)
+    """
+    doc = pymupdf.open(pdf_path)
+    
+    try:
+        # If no range provided, use full PDF
+        if from_page is None:
+            from_page = 0
+        if to_page is None:
+            to_page = doc.page_count - 1
+        
+        # Create a new PDF with the specified range
+        new_doc = pymupdf.open()
+        new_doc.insert_pdf(doc, from_page=from_page, to_page=to_page)
+        pdf_bytes = new_doc.tobytes()
+        
+        # Extract text
+        text_pdf = ""
+        for i, page in enumerate(new_doc):
+            text_pdf += f"\n\nPAGE {i + 1}\n\n"
+            text_pdf += page.get_text("text")
+        
+        new_doc.close()
+        return pdf_bytes, text_pdf
+    finally:
+        doc.close()
+
+
 def get_page_as_pdf(pdf_path: str, page_num: int) -> Tuple[bytes, str]:
     """
     Get PDF bytes and extracted text for a specific page.
@@ -17,24 +55,7 @@ def get_page_as_pdf(pdf_path: str, page_num: int) -> Tuple[bytes, str]:
         - pdf_bytes: Raw bytes of the page as a single-page PDF
         - text_pdf: Extracted text from the page
     """
-    doc = pymupdf.open(pdf_path)
-    
-    try:
-        # Create a new PDF with just this page
-        new_doc = pymupdf.open()
-        new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
-        pdf_bytes = new_doc.tobytes()
-        
-        # Extract text from the page
-        text_pdf = ""
-        for i, page in enumerate(new_doc):
-            text_pdf += f"\n\nPAGE {i + 1}\n\n"
-            text_pdf += page.get_text("text")
-        
-        new_doc.close()
-        return pdf_bytes, text_pdf
-    finally:
-        doc.close()
+    return get_pdf_bytes_and_text(pdf_path, from_page=page_num, to_page=page_num)
 
 
 def find_pdf_files(directory: Path) -> list[Path]:
