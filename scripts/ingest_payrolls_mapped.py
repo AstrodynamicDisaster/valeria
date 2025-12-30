@@ -121,8 +121,10 @@ def _validate_structure(payload: Dict[str, Any]) -> List[str]:
         if not isinstance(trabajador, dict):
             errors.append(f"[{idx}] trabajador must be an object")
         else:
-            if not trabajador.get("dni"):
-                errors.append(f"[{idx}] trabajador.dni is required to match/create employee")
+            if not trabajador.get("ss_number"):
+                errors.append(
+                    f"[{idx}] trabajador.ss_number is required to match/create employee"
+                )
             if not trabajador.get("nombre"):
                 errors.append(f"[{idx}] trabajador.nombre is required to create employee")
 
@@ -185,8 +187,8 @@ def _validate_structure(payload: Dict[str, Any]) -> List[str]:
 
 
 def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
-    dni = str(trabajador.get("dni")).strip()
-    employee = session.query(Employee).filter_by(identity_card_number=dni).first()
+    ss_number = str(trabajador.get("ss_number")).strip()
+    employee = session.query(Employee).filter_by(ss_number=ss_number).first()
     if employee:
         return employee
 
@@ -195,8 +197,8 @@ def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
         first_name=first_name,
         last_name=last_name,
         last_name2=last_name2,
-        identity_card_number=dni,
-        ss_number=trabajador.get("ss_number"),
+        identity_card_number=str(trabajador.get("dni")).strip(),
+        ss_number=ss_number,
     )
     session.add(employee)
     session.flush()
@@ -211,8 +213,8 @@ def _payroll_exists(session, employee_id: int, periodo: Dict[str, Any], liquido:
     return (
         session.query(Payroll)
         .filter(Payroll.employee_id == employee_id)
-        .filter(Payroll.periodo["desde"].astext == str(desde))
-        .filter(Payroll.periodo["hasta"].astext == str(hasta))
+        .filter(Payroll.periodo["desde"].as_string() == str(desde))
+        .filter(Payroll.periodo["hasta"].as_string() == str(hasta))
         .filter(Payroll.liquido_a_percibir == liquido)
         .first()
         is not None

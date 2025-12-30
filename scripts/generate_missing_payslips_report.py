@@ -27,6 +27,7 @@ def generate_missing_payslips_report_programmatically(
     save_to_file: bool = False,
     filename: str | None = None,
     last_month: str | None = None,
+    start_month: str | None = None,
 ) -> dict:
     """
     Run the missing payslips report without the CLI.
@@ -37,6 +38,7 @@ def generate_missing_payslips_report_programmatically(
         save_to_file: Save the report to ./reports (same behavior as CLI).
         filename: Optional custom filename when saving.
         last_month: Optional cutoff month in MM/YYYY (e.g., "05/2024").
+        start_month: Optional start month in MM/YYYY (e.g., "01/2025").
 
     Returns dict with success status, report content, summary, and file path.
     """
@@ -58,6 +60,7 @@ def generate_missing_payslips_report_programmatically(
             save_to_file=save_to_file,
             filename=filename,
             last_month=last_month,
+            start_month=start_month,
         )
     finally:
         session.close()
@@ -72,6 +75,7 @@ def main():
     save_to_file = False
     filename = None
     last_month = None
+    start_month = None
 
     args = sys.argv[1:]
     i = 0
@@ -94,6 +98,9 @@ def main():
         elif args[i] == "--last-month":
             i += 1
             last_month = args[i]
+        elif args[i] == "--start-month":
+            i += 1
+            start_month = args[i]
         elif args[i] == "--help":
             print_usage()
             return
@@ -110,6 +117,8 @@ def main():
     print(f"Client ID: {client_id}")
     if last_month:
         print(f"Cutoff month: {last_month}")
+    if start_month:
+        print(f"Start month: {start_month}")
     print()
 
     # Create database session
@@ -122,7 +131,8 @@ def main():
             output_format=output_format,
             save_to_file=save_to_file,
             filename=filename,
-            last_month=last_month
+            last_month=last_month,
+            start_month=start_month,
         )
     finally:
         session.close()
@@ -157,6 +167,7 @@ Options:
   --save                 Save report to file
   --filename FILENAME    Custom filename for saved report
   --last-month MM/YYYY   Cutoff month (e.g., "05/2024")
+  --start-month MM/YYYY  Start month (e.g., "01/2025")
   --help                 Show this help message
 
 Examples:
@@ -168,6 +179,9 @@ Examples:
 
   # Generate report with cutoff date
   python scripts/generate_missing_payslips_report.py --client-id 12345678-1234-1234-1234-123456789abc --last-month 12/2024
+
+  # Generate report with start date cap
+  python scripts/generate_missing_payslips_report.py --client-id 12345678-1234-1234-1234-123456789abc --start-month 01/2025
 
   # Generate JSON report with custom filename
   python scripts/generate_missing_payslips_report.py --client-id 12345678-1234-1234-1234-123456789abc --format json --save --filename my_report.json

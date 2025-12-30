@@ -73,8 +73,8 @@ def create_payroll(
             clash = (
                 session.query(Payroll)
                 .filter_by(employee_id=employee_id)
-                .filter(Payroll.periodo["desde"].astext == target_desde)
-                .filter(Payroll.periodo["hasta"].astext == target_hasta)
+                .filter(Payroll.periodo["desde"].as_string() == target_desde)
+                .filter(Payroll.periodo["hasta"].as_string() == target_hasta)
                 .first()
             )
             if clash:

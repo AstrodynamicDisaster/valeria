@@ -17,7 +17,7 @@ from collections import deque
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import difflib
 from openai import OpenAI
@@ -854,6 +854,10 @@ class ValeriaAgent:
 
             missing_payslips = []
             total_missing = 0
+            employees_with_missing_payslips = 0
+            total_finiquitos_needed = 0
+            total_finiquitos_satisfied = 0
+            employees_needing_finiquito = 0
             current_date = cutoff_date if cutoff_date else date.today()
 
             print(f"🔍 Analyzing missing payslips for {len(employees)} employees...")
@@ -890,16 +894,11 @@ class ValeriaAgent:
                     period_months = self._generate_expected_months(start_date, end_date)
                     expected_months.update(period_months)
 
-                # Get processed nomina months for this employee
                 processed_nominas = self.session.query(Payroll).filter_by(
                     employee_id=employee.id
                 ).all()
 
-                processed_months = set()
-                for payroll in processed_nominas:
-                    ref_date = period_reference_date(getattr(payroll, 'periodo', None))
-                    if ref_date:
-                        processed_months.add((ref_date.year, ref_date.month))
+                processed_months, settlement_months = self._collect_payroll_months(processed_nominas)
 
                 # Find missing months
                 missing_months = []
@@ -907,7 +906,27 @@ class ValeriaAgent:
                     if (year, month) not in processed_months:
                         missing_months.append(f"{year}-{month:02d}")
 
+                window_start = min((p.period_begin_date for p in periods if p.period_begin_date), default=None)
+                finiquitos = self._collect_finiquitos_for_window(
+                    periods=periods,
+                    window_start=window_start,
+                    window_end=current_date,
+                    settlement_months=settlement_months,
+                )
+
+                finiquito_needed = any(f["finiquito_status"] == "needed" for f in finiquitos)
+                if finiquito_needed:
+                    employees_needing_finiquito += 1
+                for finiquito in finiquitos:
+                    if finiquito["finiquito_status"] == "needed":
+                        total_finiquitos_needed += 1
+                    else:
+                        total_finiquitos_satisfied += 1
+
                 if missing_months:
+                    employees_with_missing_payslips += 1
+
+                if missing_months or finiquitos:
                     # Get earliest and latest periods for display
                     first_period = periods[0]
                     last_period = periods[-1]
@@ -922,19 +941,24 @@ class ValeriaAgent:
                         "expected_months": len(expected_months),
                         "processed_months": len(processed_months),
                         "missing_months": missing_months,
-                        "missing_count": len(missing_months)
+                        "missing_count": len(missing_months),
+                        "finiquitos": finiquitos,
+                        "finiquito_needed": finiquito_needed,
                     }
                     missing_payslips.append(employee_missing)
                     total_missing += len(missing_months)
 
             # Generate summary
             total_employees = len(employees)
-            employees_with_gaps = len(missing_payslips)
+            employees_with_gaps = employees_with_missing_payslips
 
             summary = {
                 "total_employees_analyzed": total_employees,
                 "employees_with_missing_payslips": employees_with_gaps,
                 "total_missing_payslips": total_missing,
+                "employees_needing_finiquito": employees_needing_finiquito,
+                "total_finiquitos_needed": total_finiquitos_needed,
+                "total_finiquitos_satisfied": total_finiquitos_satisfied,
                 "analysis_date": current_date.strftime('%Y-%m-%d')
             }
 
@@ -1060,7 +1084,7 @@ class ValeriaAgent:
     def _format_console_report(self, summary: Dict, missing_data: List[Dict]) -> str:
         """Format missing payslips report for console output"""
         lines = []
-        lines.append("📊 MISSING PAYSLIPS ANALYSIS REPORT")
+        lines.append("📊 MISSING PAYSLIPS & FINIQUITOS REPORT")
         lines.append("=" * 50)
         lines.append("")
 
@@ -1070,6 +1094,9 @@ class ValeriaAgent:
         lines.append(f"  Total employees analyzed: {summary['total_employees_analyzed']}")
         lines.append(f"  Employees with missing payslips: {summary['employees_with_missing_payslips']}")
         lines.append(f"  Total missing payslips: {summary['total_missing_payslips']}")
+        lines.append(f"  Employees needing finiquito: {summary.get('employees_needing_finiquito', 0)}")
+        lines.append(f"  Total finiquitos needed: {summary.get('total_finiquitos_needed', 0)}")
+        lines.append(f"  Total finiquitos satisfied: {summary.get('total_finiquitos_satisfied', 0)}")
 
         if summary['total_employees_analyzed'] > 0:
             completion_rate = ((summary['total_employees_analyzed'] - summary['employees_with_missing_payslips'])
@@ -1079,7 +1106,7 @@ class ValeriaAgent:
 
         # Detailed section
         if missing_data:
-            lines.append("🔍 DETAILED MISSING PAYSLIPS")
+            lines.append("🔍 DETAILED MISSING PAYSLIPS & FINIQUITOS")
             lines.append("-" * 40)
 
             for emp in missing_data:
@@ -1099,6 +1126,12 @@ class ValeriaAgent:
                 for year, months in sorted(missing_by_year.items()):
                     months_str = ", ".join(sorted(months))
                     lines.append(f"   📅 {year}: {months_str}")
+
+                if emp.get("finiquitos"):
+                    lines.append("   📄 Finiquitos:")
+                    for finiquito in emp["finiquitos"]:
+                        status = finiquito.get("finiquito_status", "needed")
+                        lines.append(f"      - {finiquito.get('baja_date')} ({status})")
         else:
             lines.append("✅ No missing payslips found! All employees have complete records.")
 
@@ -1107,14 +1140,69 @@ class ValeriaAgent:
     def _format_csv_report(self, missing_data: List[Dict]) -> str:
         """Format missing payslips data as CSV"""
         lines = []
-        lines.append("employee_name,documento,employment_start,employment_end,expected_months,processed_months,missing_count,missing_months")
+        lines.append("employee_name,documento,employment_start,employment_end,expected_months,processed_months,missing_count,missing_months,finiquito_needed,finiquitos_needed_count,finiquitos_satisfied_count,finiquito_baja_dates")
 
         for emp in missing_data:
             missing_months_str = "|".join(emp['missing_months'])
-            line = f"\"{emp['employee_name']}\",{emp['documento']},{emp['employment_start']},{emp['employment_end']},{emp['expected_months']},{emp['processed_months']},{emp['missing_count']},\"{missing_months_str}\""
+            finiquitos = emp.get("finiquitos", [])
+            finiquitos_needed = [f for f in finiquitos if f.get("finiquito_status") == "needed"]
+            finiquitos_satisfied = [f for f in finiquitos if f.get("finiquito_status") == "satisfied"]
+            finiquito_dates = "|".join(f.get("baja_date", "") for f in finiquitos)
+            line = (
+                f"\"{emp['employee_name']}\",{emp['documento']},{emp['employment_start']},{emp['employment_end']},"
+                f"{emp['expected_months']},{emp['processed_months']},{emp['missing_count']},\"{missing_months_str}\","
+                f"{str(emp.get('finiquito_needed', False)).lower()},{len(finiquitos_needed)},{len(finiquitos_satisfied)},\"{finiquito_dates}\""
+            )
             lines.append(line)
 
         return "\n".join(lines)
+
+    def _collect_payroll_months(self, payrolls: List[Payroll]) -> Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]:
+        processed_months: Set[Tuple[int, int]] = set()
+        settlement_months: Set[Tuple[int, int]] = set()
+
+        for payroll in payrolls:
+            ref_date = period_reference_date(getattr(payroll, "periodo", None))
+            if not ref_date:
+                continue
+            month_key = (ref_date.year, ref_date.month)
+            processed_months.add(month_key)
+            if payroll.type in {"settlement", "hybrid"}:
+                settlement_months.add(month_key)
+
+        return processed_months, settlement_months
+
+    def _collect_finiquitos_for_window(
+        self,
+        *,
+        periods: List[EmployeePeriod],
+        window_start: Optional[date],
+        window_end: date,
+        settlement_months: Set[Tuple[int, int]],
+    ) -> List[Dict[str, Any]]:
+        finiquitos = []
+
+        for period in periods:
+            if period.period_type != "baja" or not period.period_end_date:
+                continue
+
+            baja_date = period.period_end_date
+            if window_start and baja_date < window_start:
+                continue
+            if baja_date > window_end:
+                continue
+
+            month_key = (baja_date.year, baja_date.month)
+            status = "satisfied" if month_key in settlement_months else "needed"
+            finiquitos.append(
+                {
+                    "baja_date": baja_date.strftime("%Y-%m-%d"),
+                    "baja_month": f"{baja_date.year}-{baja_date.month:02d}",
+                    "finiquito_status": status,
+                }
+            )
+
+        return finiquitos
 
     def extract_files_from_zip(self, zip_path: str, extract_to: Optional[str] = None) -> Dict[str, Any]:
         """Extract PDF files from ZIP - simple file handling"""
