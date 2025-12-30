@@ -352,3 +352,16 @@ def get_active_employee_period(employee_id: int, session) -> EmployeePeriod:
         EmployeePeriod.period_type == 'alta',
         EmployeePeriod.period_end_date is None
     ).order_by(desc(EmployeePeriod.period_begin_date)).first()
+
+
+def get_id_by_CIF(CIF: str, session) -> Client:
+    """
+    Get the active employment period for an employee.
+
+    Returns the most recent ALTA period with no end_date.
+    """
+    from sqlalchemy import desc
+
+    return session.query(Client).filter(
+        Client.cif == CIF,
+    ).order_by(desc(Client.name)).first()
