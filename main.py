@@ -1,5 +1,6 @@
 from requests import session
 import core.a3.tools as a3_tools
+from core.models import get_id_by_CIF
 import core.production_models as prod_models
 import core.database as database
 from scripts.extract_vida_ccc import import_vida_laboral
@@ -12,7 +13,6 @@ from pathlib import Path
 
 CIF = "B42524694" # TEPUY BURGERS SL
 DNI = "51774361G"
-uuid_client = "16b3fdd1-c35c-4e95-a9f9-0661a08f7702"
 # CIF = "B56222938"  # DANIK
 # DNI = "04304917F"
 # CIF = "B75604249"  # JARVIS
@@ -91,6 +91,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
 
 prod_logs = process_prod_query(client_identifier=CIF)
 print(f"Production data import result: {prod_logs}")
+
+uuid_client = str(get_id_by_CIF(CIF, local_session).id)
 
 # GENERATE REPORT FOR REQUIRED PAYSLIPS
 result = generate_missing_payslips_report_programmatically(

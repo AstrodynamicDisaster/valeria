@@ -255,9 +255,9 @@ def list_production_locations_for_company(session, company_id: str, include_dele
     return query.all()
 
 
-def _coerce_prod_bool(value):
+def _coerce_prod_bool(value) -> bool:
     if value is None:
-        return None
+        return True
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
@@ -267,7 +267,7 @@ def _coerce_prod_bool(value):
         return True
     if raw in {"false", "f", "0", "no", "n"}:
         return False
-    return None
+    return True
 
 
 def insert_company_locations_into_local_clients(
@@ -315,7 +315,7 @@ def insert_company_locations_into_local_clients(
         client.phone = prod_company.phone
         client.begin_date = prod_company.begin_date
         client.managed_by = prod_company.managed_by
-        client.payslips = _coerce_prod_bool(getattr(prod_company, "payslips", None))
+        client.payslips = _coerce_prod_bool(getattr(prod_company, "payslips", True))
 
         client.legal_repr_first_name = prod_company.legal_repr_first_name
         client.legal_repr_last_name1 = prod_company.legal_repr_last_name1
@@ -376,15 +376,6 @@ if __name__ == "__main__":
         # Test query
         companies = session.query(ProductionCompany).limit(2).all()
         print(f"\nFound {len(companies)} companies:")
-        for company in companies:
-            print(f"  - {company.name} (CIF: {company.cif})")
-
-            # Get employees for first company
-            if companies:
-                employees = list_production_employees_for_company(session, companies[0].id)
-                print(f"\nFirst company has {len(employees)} employees")
-                for emp in employees[:3]:
-                    print(f"  - {emp.first_name} {emp.last_name} ({emp.identity_card_number})")
 
         session.close()
         print("\n✓ Production database connection successful!")
