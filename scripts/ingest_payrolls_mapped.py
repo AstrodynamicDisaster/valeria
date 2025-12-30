@@ -232,17 +232,20 @@ def _ingest_payrolls(
     for idx, payroll in enumerate(payrolls, start=1):
         trabajador = payroll["trabajador"]
         employee = _find_or_create_employee(session, trabajador)
+        if employee.id is None:
+            raise RuntimeError("Employee id is None after creation/lookup.")
+        employee_id = int(employee.id)
 
         periodo = payroll.get("periodo") or {}
         liquido = _as_decimal(payroll.get("liquido_a_percibir"))
-        if _payroll_exists(session, employee.id, periodo, liquido):
+        if _payroll_exists(session, employee_id, periodo, liquido):
             skipped += 1
             continue
 
         warnings_text = _normalize_warnings(payroll.get("warnings"))
 
         payroll_row = Payroll(
-            employee_id=employee.id,
+            employee_id=employee_id,
             type=payroll.get("type"),
             periodo=periodo,
             devengo_total=_as_decimal(payroll.get("devengo_total")),

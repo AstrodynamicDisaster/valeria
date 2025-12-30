@@ -1,5 +1,5 @@
 import requests
-from typing import Optional
+from typing import Any, Optional
 import logging
 import json
 from . import config as Config
@@ -144,7 +144,7 @@ def get_company_employees(company_id: int, period_start: Optional[str] = None, p
         logging.error(f"Unexpected error: {e}")
 
 
-def get_employee_by_dni(company_id: str, dni: str) -> str | None:
+def get_employee_by_dni(company_id: str, dni: str) -> Optional[dict[str, Any]]:
 
     headers = get_headers()
 
@@ -252,8 +252,12 @@ def get_payslip_data(payslip_id: str, employee_id: str, company_id: str) -> str 
 def extract_payslip_data(payslip: dict, payslip_data: dict) -> dict:
     """Extract relevant data from a payslip dictionary."""
     
-    date_from = datetime.fromisoformat(payslip.get(START_DATE))
-    date_to = datetime.fromisoformat(payslip.get(END_DATE))
+    start_raw = payslip.get(START_DATE)
+    end_raw = payslip.get(END_DATE)
+    if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+        raise ValueError("Payslip start/end dates must be ISO strings.")
+    date_from = datetime.fromisoformat(start_raw)
+    date_to = datetime.fromisoformat(end_raw)
     days = min(30, (date_to - date_from).days +1)
 
     payroll = {
@@ -362,7 +366,12 @@ def get_payslip_employee(company_cif: str, employee_id: str, month_iso: str):
         raise ValueError(f"Invalid month format '{month_iso}'. Use 'YYYY-MM'.") from exc
 
     company_code = get_company_id(company_cif)
-    employee_code = get_employee_by_dni(company_code, employee_id)[EMPLOYEE_A3_CODE]
+    if company_code is None:
+        raise ValueError(f"Company not found for CIF {company_cif}.")
+    employee_data = get_employee_by_dni(company_code, employee_id)
+    if not employee_data or EMPLOYEE_A3_CODE not in employee_data:
+        raise ValueError(f"Employee not found for DNI/NIE {employee_id}.")
+    employee_code = employee_data[EMPLOYEE_A3_CODE]
     payslips = get_employee_payrolls(employee_code, company_code)
 
     # Normalise paging shape (get_employee_payrolls may return list of pages)

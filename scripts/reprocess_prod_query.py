@@ -142,7 +142,7 @@ def process_prod_query(client_identifier: str, employee_identifier: str | None =
                 # Optional: skip if row company doesn't match selected client
                 if row.get("Companies__cif") and row["Companies__cif"] != client.cif:
                     continue
-                mapped = map_row(row)
+                mapped = map_row(dict(row))
                 vida_laboral.process_row(target_session, client.id, mapped, ctx)
                 row_count += 1
 

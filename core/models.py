@@ -5,13 +5,15 @@ SQLAlchemy ORM models for the payroll processing workflow.
 These models are used at runtime by the application.
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from uuid import UUID as PyUUID
+from typing import Optional
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric,
     String, Text
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -21,7 +23,7 @@ class Client(Base):
     """Client companies using payroll services"""
     __tablename__ = 'clients'
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id: Mapped[PyUUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     name = Column(Text, nullable=False)  # Was fiscal_name
     cif = Column(Text, unique=True, nullable=False)  # Was nif
     fiscal_address = Column(Text)
@@ -29,7 +31,7 @@ class Client(Base):
     phone = Column(Text)
     begin_date = Column(DateTime(timezone=True))
     managed_by = Column(Text)
-    payslips = Column(Boolean, default=True)
+    payslips: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Legal representative fields (matching production)
     legal_repr_first_name = Column(Text)
@@ -56,8 +58,8 @@ class ClientLocation(Base):
     """Client company locations with unique CCC (Código Cuenta Cotización)"""
     __tablename__ = 'client_locations'
 
-    id = Column(Integer, primary_key=True)
-    company_id = Column(UUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
     ccc_ss = Column(Text, unique=True, nullable=False)  # Código Cuenta Cotización / NAF
 
     created_at = Column(DateTime(timezone=True), default=func.now())
@@ -72,12 +74,12 @@ class Employee(Base):
     """Employees - simplified model with only identity and contact information"""
     __tablename__ = 'employees'
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     # Identity fields
     first_name = Column(Text, nullable=False)
     last_name = Column(Text, nullable=False)
-    last_name2 = Column(Text)  # Spanish second surname
+    last_name2: Mapped[Optional[str]] = mapped_column(Text)  # Spanish second surname
     identity_card_number = Column(Text, nullable=False)  # DNI/NIE
     identity_doc_type = Column(Text)  # 'DNI' or 'NIE'
     ss_number = Column(Text)  # Número Seguridad Social
@@ -111,12 +113,12 @@ class EmployeePeriod(Base):
     location_id = Column(Integer, ForeignKey('client_locations.id', ondelete='CASCADE'), nullable=False)
 
     # Period dates
-    period_begin_date = Column(Date, nullable=False)
-    period_end_date = Column(Date, nullable=True)  # NULL for active/ongoing periods
+    period_begin_date: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)  # NULL for active/ongoing periods
 
     # Period type and details
-    period_type = Column(Text, nullable=False)  # 'alta', 'baja', 'vacaciones'
-    tipo_contrato = Column(Text)  # Contract type code for ALTA/BAJA periods
+    period_type: Mapped[str] = mapped_column(Text, nullable=False)  # 'alta', 'baja', 'vacaciones'
+    tipo_contrato: Mapped[Optional[str]] = mapped_column(Text)  # Contract type code for ALTA/BAJA periods
 
     # Employment details (can change per period)
     salary = Column(Numeric(12, 2))  # Salary for this period
@@ -152,7 +154,7 @@ class Document(Base):
     __tablename__ = 'documents'
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(UUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'))
+    client_id = Column(PGUUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'))
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='CASCADE'))
 
@@ -257,7 +259,7 @@ class ChecklistItem(Base):
     __tablename__ = 'checklist_items'
 
     id = Column(Integer, primary_key=True)
-    client_id = Column(UUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
+    client_id = Column(PGUUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
     employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'))
     payroll_id = Column(Integer, ForeignKey('payrolls.id', ondelete='SET NULL'))
 
@@ -323,7 +325,7 @@ def calculate_employee_status(employee_id: int, session) -> str:
     return 'Unknown'
 
 
-def get_employee_company(employee_id: int, session) -> str:
+def get_employee_company(employee_id: int, session) -> Optional[str]:
     """
     Get employee's current/most recent company ID.
 

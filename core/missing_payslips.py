@@ -12,6 +12,7 @@ import os
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,7 @@ from core.utils.periods import period_reference_date
 def detect_missing_payslips(
     session: Session,
     *,
-    client_id: str,
+    client_id: str | UUID,
     last_month: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -322,7 +323,7 @@ def detect_missing_payslips_for_month(
 def generate_missing_payslips_report(
     session: Session,
     *,
-    client_id: Optional[str] = None,
+    client_id: Optional[str | UUID] = None,
     output_format: str = "json",
     save_to_file: bool = False,
     filename: Optional[str] = None,

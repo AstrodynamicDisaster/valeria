@@ -12,9 +12,10 @@ import re
 from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import create_engine, func
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.models import Client, ClientLocation, Employee, EmployeePeriod, Payroll, PayrollLine
@@ -312,7 +313,7 @@ def get_payroll_line_aggregates(
         return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
 
     # Pull payrolls for employee; filter by period overlap in Python due to mixed date formats.
-    payroll_rows: Sequence[tuple[int, dict]] = (
+    payroll_rows: Sequence[Row[tuple[int, Any]]] = (
         session.query(Payroll.id, Payroll.periodo)
         .filter(Payroll.employee_id == employee.id)
         .all()
@@ -415,7 +416,7 @@ def get_employee_devengo_total(
     if not has_company_period:
         return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
 
-    payroll_rows: Sequence[tuple[int, dict, Optional[Decimal]]] = (
+    payroll_rows: Sequence[Row[tuple[int, Any, Decimal]]] = (
         session.query(Payroll.id, Payroll.periodo, Payroll.devengo_total)
         .filter(Payroll.employee_id == employee.id)
         .all()
@@ -452,4 +453,3 @@ def get_employee_devengo_total(
         "devengo_total": devengo_sum,
         "payroll_count": len(matching_payroll_ids),
     }
-

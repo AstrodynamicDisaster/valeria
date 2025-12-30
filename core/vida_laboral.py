@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict
+from uuid import UUID
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -29,7 +30,7 @@ class VidaLaboralContext:
     employees_not_found: int = 0  # Track skipped records when create_employees=False
 
 
-def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: VidaLaboralContext) -> None:
+def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context: VidaLaboralContext) -> None:
     """Create or find employee and create ALTA period."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
@@ -129,7 +130,7 @@ def handle_alta(session: Session, client_id: str, row: Dict[str, str], context: 
     print(f"✅ Created ALTA period for {row['nombre']} starting {begin_date}")
 
 
-def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: VidaLaboralContext) -> None:
+def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context: VidaLaboralContext) -> None:
     """Find active ALTA period and close it (change to BAJA)."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
@@ -223,7 +224,7 @@ def handle_baja(session: Session, client_id: str, row: Dict[str, str], context: 
     print(f"✅ Created terminated period for {row['nombre']} (begin: {begin_date}, end: {end_date})")
 
 
-def handle_vacacion(session: Session, client_id: str, row: Dict[str, str], context: VidaLaboralContext) -> None:
+def handle_vacacion(session: Session, client_id: UUID, row: Dict[str, str], context: VidaLaboralContext) -> None:
     """Record a VAC.RETRIB.NO vacation period."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
@@ -285,7 +286,7 @@ HANDLERS = {
 }
 
 
-def process_row(session: Session, client_id: str, row: Dict[str, str], context: VidaLaboralContext) -> None:
+def process_row(session: Session, client_id: UUID, row: Dict[str, str], context: VidaLaboralContext) -> None:
     """Dispatch vida laboral rows to the appropriate handler."""
     situacion = row.get('situacion')
     if not situacion:
