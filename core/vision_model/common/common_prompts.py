@@ -322,7 +322,7 @@ payslip_example_output = """
   "deduccion_total": 132.79,
   "liquido_a_percibir": 970.64,
   "aportacion_empresa_total": 533.66,
-  "prorrata_pagas_extra_total": 155.70,
+  "prorrata_pagas_extra_total": 43.21,
   "base_contingencias_comunes_total": 1557.19,
   "base_accidente_de_trabajo_y_desempleo_total": 1557.19,
   "base_retencion_irpf_total": 1103.43,

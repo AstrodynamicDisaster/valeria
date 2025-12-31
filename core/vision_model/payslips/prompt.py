@@ -288,8 +288,8 @@ Each item must have ALL these fields:
 ### **MANDATORY SPECIAL LOGIC**
 1.  **"EMBARGO" (Garnishment) Concept**: If you detect a concept in `devengo_items` that contains the word "EMBARGO", you **MUST move the entire object** from the `devengo_items` array to the `deduccion_items` array. Add the corresponding warning.
 2.  **Days in Period**: If the `dias` field in the payslip is 31 and the OCR system extracts 30, **do not modify it and do not add any warning**. Leave it as 30.
-3.  **NO PRORRATA CALCULATION**: Under NO circumstances should you calculate `prorrata_pagas_extra_total` by subtracting figures or using formulas. This is a hard constraint. If the number is not explicitly printed, the value MUST be `null`.
-4.  **NO INFERRED TOTALS**: The rule "Any correction or assumption you make, please inform that" DOES NOT APPLY to missing totals. If a total is missing, do not assume it, do not calculate it (except for employer contributions as specified), just set it to `null`.
+3.  **NO PRORRATA WEIRD CALCULATIONS**: Under NO circumstances should you calculate `prorrata_pagas_extra_total` by subtracting figures or using formulas. This is a hard constraint. If the number is not explicitly printed, the value MUST be `null`. Only set it if it is present in the document as a devengo item (e.g. PRORRATA PAGAS EXTRAS, PAGAS EXTRA PRORRATEADAS, or anything similar)!
+4.  **NO INFERRED TOTALS**: The rule "Any correction or assumption you make, please inform that" DOES NOT APPLY to missing totals. If a total is missing, do not calculate it (except for employer contributions as specified), just set it to `null`.
 
 ### Additional Clues and format:
 TIPO_RANGES = {
@@ -311,6 +311,7 @@ The user will provide you with a payslip file (PDF base64) and the raw unstructu
 
 ## IMPORTANT:
 DO NOT HALUCINATE ANY INFORMATION. IF YOU ARE NOT SURE ABOUT SOMETHING, SET THE VALUE TO `null`.
+TAKE INTO ACCOUNT ALL THE PAGES IN THE DOCUMENT. SOME  PAYSLIPS ARE MULTIPLE PAGES, OR MIGHT CONTAIN A SETTLEMENT PAGE AT THE END! CONSIDER ALL THE PAGES IN THE DOCUMENT!
 
 ### **FINAL OUTPUT FORMAT**
 
