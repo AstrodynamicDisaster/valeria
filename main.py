@@ -61,30 +61,30 @@ print(f"Inserting company locations for CIF {CIF} into local clients...")
 prod_models.insert_company_locations_into_local_clients(prod_session, CIF)
 print("Done.")
 
-# CREATE A TEMPORARY DIRECTORY FOR PROCESSING FILES
-with tempfile.TemporaryDirectory() as temp_dir:
-    print(f"Using temporary directory: {temp_dir}")
-    temp_dir_path = str(Path(temp_dir).resolve())
+# # CREATE A TEMPORARY DIRECTORY FOR PROCESSING FILES
+# with tempfile.TemporaryDirectory() as temp_dir:
+#     print(f"Using temporary directory: {temp_dir}")
+#     temp_dir_path = str(Path(temp_dir).resolve())
 
-    # PARSE MSJ FILE
-    for msj_file in MSJ_PATHS:
-        import_vida_laboral(msj_file, temp_dir_path)
+#     # PARSE MSJ FILE
+#     for msj_file in MSJ_PATHS:
+#         import_vida_laboral(msj_file, temp_dir_path)
 
-    # NOW GET THE LIST OF ALL THE CSV FILES GENERATED
-    csv_files = list(Path(temp_dir_path).glob("*.csv"))
+#     # NOW GET THE LIST OF ALL THE CSV FILES GENERATED
+#     csv_files = list(Path(temp_dir_path).glob("*.csv"))
 
-    # PROCESS EACH CSV FILE
-    for csv_file in csv_files:
-        result = process_vida_laboral_csv(
-            csv_path=str(csv_file),
-            client_identifier=CIF,
-            create_employees=True
-        )
+#     # PROCESS EACH CSV FILE
+#     for csv_file in csv_files:
+#         result = process_vida_laboral_csv(
+#             csv_path=str(csv_file),
+#             client_identifier=CIF,
+#             create_employees=True
+#         )
 
-        if result["success"]:
-            print(f"Successfully processed {csv_file}")
-        else:
-            print(f"Failed to process {csv_file}: {result.get('error', 'Unknown error')}")
+#         if result["success"]:
+#             print(f"Successfully processed {csv_file}")
+#         else:
+#             print(f"Failed to process {csv_file}: {result.get('error', 'Unknown error')}")
     
 
 # IMPORT EMPLOYEES AND EMPLOYEE PERIODS FROM PRODUCTION DATABASE

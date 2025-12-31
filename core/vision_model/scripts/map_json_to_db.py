@@ -69,6 +69,27 @@ def map_payslip_json_to_db_format(json_data: Dict[str, Any], source_file: Option
         empresa = data.get("empresa", {})
         trabajador = data.get("trabajador", {})
         
+        def parse_yyyy_mm_dd(value: Optional[str]) -> Optional[datetime]:
+            if not value or not isinstance(value, str):
+                return None
+            try:
+                return datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return None
+
+        # Para settlements sin periodo, derivarlo desde fecha_cese (del 1 del mes hasta fecha_cese)
+        if doc_type == "settlement" and not periodo:
+            fecha_cese_raw = data.get("fecha_cese")
+            fecha_cese_dt = parse_yyyy_mm_dd(fecha_cese_raw)
+            if fecha_cese_dt:
+                desde_dt = fecha_cese_dt.replace(day=1)
+                dias = (fecha_cese_dt - desde_dt).days + 1
+                periodo = {
+                    "desde": desde_dt.strftime("%Y-%m-%d"),
+                    "hasta": fecha_cese_dt.strftime("%Y-%m-%d"),
+                    "dias": dias,
+                }
+
         # Mapear periodo
         periodo_mapped = {
             "desde": periodo.get("desde"),
@@ -471,4 +492,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

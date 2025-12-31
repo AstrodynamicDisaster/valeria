@@ -2,7 +2,7 @@
   "metadata": {
     "source_folder": "parsing/tepuy",
     "total_payrolls": 144,
-    "generated_at": "2025-12-30T16:58:00.794563"
+    "generated_at": "2025-12-31T12:27:54.652767"
   },
   "payrolls": [
     {
@@ -24198,9 +24198,9 @@
         "ss_number": "031145101217"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-07-01",
+        "hasta": "2025-07-10",
+        "dias": 10
       },
       "devengo_total": 0.0,
       "deduccion_total": 285.08,
@@ -24251,9 +24251,9 @@
         "ss_number": "031029253410"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-06-01",
+        "hasta": "2025-06-11",
+        "dias": 11
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24291,9 +24291,9 @@
         "ss_number": "031124442338"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-09-01",
+        "hasta": "2025-09-07",
+        "dias": 7
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24331,9 +24331,9 @@
         "ss_number": "031124442338"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-06-01",
+        "hasta": "2025-06-26",
+        "dias": 26
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24371,9 +24371,9 @@
         "ss_number": "031124442338"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-09-01",
+        "hasta": "2025-09-08",
+        "dias": 8
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24411,9 +24411,9 @@
         "ss_number": "031087635383"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-01-01",
+        "hasta": "2025-01-10",
+        "dias": 10
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24451,9 +24451,9 @@
         "ss_number": "181063641173"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-11-01",
+        "hasta": "2025-11-04",
+        "dias": 4
       },
       "devengo_total": 135.0,
       "deduccion_total": 11.46,
@@ -24564,9 +24564,9 @@
         "ss_number": "031156890050"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-02-01",
+        "hasta": "2025-02-11",
+        "dias": 11
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24605,9 +24605,9 @@
         "ss_number": "031154836276"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-09-01",
+        "hasta": "2025-09-14",
+        "dias": 14
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24645,9 +24645,9 @@
         "ss_number": "031154907109"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-02-01",
+        "hasta": "2025-02-07",
+        "dias": 7
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
@@ -24685,9 +24685,9 @@
         "ss_number": "081508189311"
       },
       "periodo": {
-        "desde": null,
-        "hasta": null,
-        "dias": null
+        "desde": "2025-09-01",
+        "hasta": "2025-09-10",
+        "dias": 10
       },
       "devengo_total": 0.0,
       "deduccion_total": 0.0,
