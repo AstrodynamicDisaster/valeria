@@ -21,7 +21,7 @@ DNI = "51774361G"
 # DNI = "49348529M"
 MONTH = "2025-11"  # November 2025
 START_DATE = "2025-01-01"
-END_DATE = "2025-12-31"
+END_DATE = "2025-11-31"
 
 # MSJ_FILES =[
 #                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_1.msj",
@@ -100,7 +100,7 @@ result = generate_missing_payslips_report_programmatically(
         output_format="json",
         save_to_file=True,
         filename="pipeline_test.json",
-        last_month="12/2025",
+        last_month="11/2025",
     )
 
 print("Missing payslips report generation result:")
