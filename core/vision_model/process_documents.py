@@ -600,8 +600,8 @@ if __name__ == "__main__":
     # Example usage with dict config
     config = {
         # "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
-        "input_path": "/Users/albert/repos/valeria/nominas_tepuy_reduced.pdf",
-        "output_dir": "/Users/albert/repos/valeria/parsing/tepuy",
+        "input_path": "/Users/albert/repos/valeria/parsing/rossitruck/data/payslips",
+        "output_dir": "/Users/albert/repos/valeria/parsing/rossitruck/raw",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",
         "classification_provider": "gemini",

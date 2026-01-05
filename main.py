@@ -11,8 +11,9 @@ from core.missing_payslips import detect_missing_payslips_for_month
 import tempfile
 from pathlib import Path
 
-CIF = "B42524694" # TEPUY BURGERS SL
-DNI = "51774361G"
+CIF = "B66891201" # TREMENDA BROTHERS SL
+# CIF = "B42524694" # TEPUY BURGERS SL
+# DNI = "51774361G"
 # CIF = "B56222938"  # DANIK
 # DNI = "04304917F"
 # CIF = "B75604249"  # JARVIS
