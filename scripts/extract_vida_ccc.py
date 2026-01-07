@@ -4,6 +4,8 @@ import sys
 import csv
 import tempfile
 
+from core.normalization import normalize_ssn
+
 
 def parse_vida_laboral(filepath):
     employees = []
@@ -33,7 +35,7 @@ def parse_vida_laboral(filepath):
                 tokens = line.split()
                 if len(tokens) >= 5:
                     # Extract NAF (Social Security Number): provincia code + NAF number
-                    naf = tokens[0] + " " + tokens[1]
+                    naf = normalize_ssn(f"{tokens[0]} {tokens[1]}") or ""
                     doc = tokens[3]
                     # Si el último token tiene exactamente 3 caracteres, se asume que no forma parte del nombre.
                     if len(tokens[-1]) == 3:

@@ -25,6 +25,7 @@ from sqlalchemy import MetaData, Table, String, cast, select, or_
 from sqlalchemy.orm import sessionmaker
 
 from core.database import create_database_engine, create_prod_engine
+from core.normalization import normalize_ssn
 import core.vida_laboral as vida_laboral
 from core.vida_laboral import VidaLaboralContext
 from core.models import Client
@@ -105,7 +106,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
     full_surnames = f"{surname1} {surname2}".strip()
 
     return {
-        "naf": (row.get("ss_number") or "").strip(),
+        "naf": normalize_ssn(row.get("ss_number")),
         "documento": (row.get("identity_card_number") or "").strip(),
         # Keep original order for now; downstream may adjust parsing
         "nombre": f"{(row.get('first_name') or '').strip()} {full_surnames}".strip(),

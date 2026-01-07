@@ -19,6 +19,7 @@ from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.models import Client, ClientLocation, Employee, EmployeePeriod, Payroll, PayrollLine
+from core.normalization import normalize_ssn
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -293,10 +294,11 @@ def get_payroll_line_aggregates(
     """
     period_start, period_end = _parse_period_iso(period_iso)
 
-    employee = session.query(Employee).filter(Employee.ss_number == employee_ssn).first()
+    normalized_ssn = normalize_ssn(employee_ssn)
+    employee = session.query(Employee).filter(Employee.ss_number == normalized_ssn).first()
     location = session.query(ClientLocation).filter(ClientLocation.ccc_ss == company_ssn).first()
     if not employee or not location:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
 
     # Ensure employee has a period for this location overlapping the requested period.
     has_company_period = (
@@ -310,7 +312,7 @@ def get_payroll_line_aggregates(
         .first()
     )
     if not has_company_period:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
 
     # Pull payrolls for employee; filter by period overlap in Python due to mixed date formats.
     payroll_rows: Sequence[Row[tuple[int, Any]]] = (
@@ -335,7 +337,7 @@ def get_payroll_line_aggregates(
             matching_payroll_ids.append(payroll_id)
 
     if not matching_payroll_ids:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "totals": {}, "total_importe": Decimal("0.00")}
 
     query = (
         session.query(PayrollLine.category, func.sum(PayrollLine.amount))
@@ -367,7 +369,7 @@ def get_payroll_line_aggregates(
         totals[normalized_category] = Decimal("0.00")
 
     return {
-        "employee_ssn": employee_ssn,
+        "employee_ssn": normalized_ssn,
         "company_ssn": company_ssn,
         "period": period_iso,
         "concepto_filter": concepto_filter,
@@ -398,10 +400,11 @@ def get_employee_devengo_total(
     """
     period_start, period_end = _parse_period_iso(period_iso)
 
-    employee = session.query(Employee).filter(Employee.ss_number == employee_ssn).first()
+    normalized_ssn = normalize_ssn(employee_ssn)
+    employee = session.query(Employee).filter(Employee.ss_number == normalized_ssn).first()
     location = session.query(ClientLocation).filter(ClientLocation.ccc_ss == company_ssn).first()
     if not employee or not location:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
 
     has_company_period = (
         session.query(EmployeePeriod.id)
@@ -414,7 +417,7 @@ def get_employee_devengo_total(
         .first()
     )
     if not has_company_period:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
 
     payroll_rows: Sequence[Row[tuple[int, Any, Decimal]]] = (
         session.query(Payroll.id, Payroll.periodo, Payroll.devengo_total)
@@ -438,7 +441,7 @@ def get_employee_devengo_total(
             matching_payroll_ids.append(payroll_id)
 
     if not matching_payroll_ids:
-        return {"employee_ssn": employee_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
+        return {"employee_ssn": normalized_ssn, "company_ssn": company_ssn, "period": period_iso, "devengo_total": Decimal("0.00"), "payroll_count": 0}
 
     devengo_sum = (
         session.query(func.sum(Payroll.devengo_total))
@@ -447,7 +450,7 @@ def get_employee_devengo_total(
     ) or Decimal("0.00")
 
     return {
-        "employee_ssn": employee_ssn,
+        "employee_ssn": normalized_ssn,
         "company_ssn": company_ssn,
         "period": period_iso,
         "devengo_total": devengo_sum,

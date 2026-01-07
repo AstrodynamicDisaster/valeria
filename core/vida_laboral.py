@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from core.normalization import normalize_ssn
 from core.vida_laboral_utils import parse_date, parse_spanish_name
 from core.models import ClientLocation, Employee, EmployeePeriod
 
@@ -43,7 +44,7 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
         first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     begin_date = parse_date(row.get('f_efecto_alta'))
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Try to find existing employee using priority-based matching
@@ -154,7 +155,7 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
     else:
         first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
     end_date = parse_date(row.get('f_real_sit'))
 
@@ -258,7 +259,7 @@ def handle_vacacion(session: Session, client_id: UUID, row: Dict[str, str], cont
     """Record a VAC.RETRIB.NO vacation period."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Find employee using priority-based matching

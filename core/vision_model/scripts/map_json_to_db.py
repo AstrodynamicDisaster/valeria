@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from core.normalization import normalize_ssn
+
 
 def map_item_to_payroll_line(item: Dict[str, Any], category: str) -> Dict[str, Any]:
     """
@@ -125,7 +127,7 @@ def map_payslip_json_to_db_format(json_data: Dict[str, Any], source_file: Option
             "trabajador": {
                 "nombre": trabajador.get("nombre"),
                 "dni": trabajador.get("dni"),
-                "ss_number": trabajador.get("ss_number"),
+                "ss_number": normalize_ssn(trabajador.get("ss_number")),
             },
             
             # Periodo

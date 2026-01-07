@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.database import create_database_engine, get_session
+from core.normalization import normalize_ssn
 from core.models import Employee, Payroll, PayrollLine
 
 
@@ -153,7 +154,7 @@ def _validate_structure(
         if not isinstance(trabajador, dict):
             errors.append(f"[{idx}] trabajador must be an object{context}")
         else:
-            ss_number = _normalize_id(trabajador.get("ss_number"))
+            ss_number = normalize_ssn(trabajador.get("ss_number"))
             dni = _normalize_id(trabajador.get("dni"))
             if not ss_number and not dni:
                 errors.append(
@@ -241,7 +242,7 @@ def _validate_structure(
 
 
 def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
-    ss_number = _normalize_id(trabajador.get("ss_number"))
+    ss_number = normalize_ssn(trabajador.get("ss_number"))
     dni = _normalize_id(trabajador.get("dni"))
 
     employee = None

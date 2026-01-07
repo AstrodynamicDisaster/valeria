@@ -39,6 +39,7 @@ from core.agent.utils import (
 )
 from core.database import create_database_engine
 from core.models import Client, Employee, EmployeePeriod, NominaConcept, Payroll, PayrollLine
+from core.normalization import normalize_ssn
 from core.payslip_parser import process_payslip
 from core.production_models import (
     ProductionCompany,
@@ -649,7 +650,7 @@ class ValeriaAgent:
                     last_name2=prod_employee.last_name2,
                     identity_card_number=prod_employee.identity_card_number,
                     identity_doc_type=prod_employee.identity_doc_type,
-                    ss_number=prod_employee.ss_number,
+                    ss_number=normalize_ssn(prod_employee.ss_number),
                     birth_date=prod_employee.birth_date,
                     address=prod_employee.address,
                     phone=prod_employee.phone,
@@ -705,7 +706,7 @@ class ValeriaAgent:
                     last_name2=prod_emp.last_name2,
                     identity_card_number=prod_emp.identity_card_number,
                     identity_doc_type=prod_emp.identity_doc_type,
-                    ss_number=prod_emp.ss_number,
+                    ss_number=normalize_ssn(prod_emp.ss_number),
                     birth_date=prod_emp.birth_date,
                     address=prod_emp.address,
                     phone=prod_emp.phone,
@@ -1783,7 +1784,7 @@ class ValeriaAgent:
                 print(f"🎯 Company context established: {client_id}")
 
         # Extract SSN from trabajador data
-        emp_ssn = trabajador.get("ss_number", "").strip()
+        emp_ssn = normalize_ssn(trabajador.get("ss_number"))
 
         print(f"\nSS HITLER: {emp_ssn}")
 
@@ -1837,8 +1838,8 @@ class ValeriaAgent:
             employee = query.first()
 
             # If no match, try 10-digit SSN match (last 10 digits)
-            if not employee and len(emp_ssn.replace(" ", "")) >= 10:
-                last_10 = emp_ssn.replace(" ", "")[-10:]
+            if not employee and emp_ssn and len(emp_ssn) >= 10:
+                last_10 = emp_ssn[-10:]
                 print(f"❌ No match")
                 print(f"   → Trying last 10 digits: {last_10}... ", end='', flush=True)
 
@@ -1860,7 +1861,7 @@ class ValeriaAgent:
 
                 # Check each candidate to see if last 10 digits match
                 for candidate in query.all():
-                    stored_ssn_digits = candidate.ss_number.replace(" ", "")
+                    stored_ssn_digits = normalize_ssn(candidate.ss_number) or ""
                     if len(stored_ssn_digits) >= 10:
                         candidate_last_10 = stored_ssn_digits[-10:]
                         if candidate_last_10 == last_10:
@@ -2419,7 +2420,7 @@ class ValeriaAgent:
                 last_name2=kwargs.get('last_name2'),
                 identity_card_number=identity_card_number,
                 identity_doc_type=kwargs.get('identity_doc_type', 'DNI'),
-                ss_number=kwargs.get('ss_number', ''),
+                ss_number=normalize_ssn(kwargs.get('ss_number')),
                 birth_date=kwargs.get('birth_date'),
                 address=kwargs.get('address', ''),
                 phone=kwargs.get('phone', ''),

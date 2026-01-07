@@ -13,8 +13,10 @@ from sqlalchemy import (
     String, Text
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
-from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, validates
 from sqlalchemy.sql import func
+
+from core.normalization import normalize_ssn
 
 Base = declarative_base()
 
@@ -98,6 +100,10 @@ class Employee(Base):
     payrolls = relationship("Payroll", back_populates="employee", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="employee", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="employee", cascade="all, delete-orphan")
+
+    @validates("ss_number")
+    def _normalize_ss_number(self, _key, value):
+        return normalize_ssn(value)
 
 
 class EmployeePeriod(Base):
