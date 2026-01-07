@@ -11,7 +11,8 @@ from core.missing_payslips import detect_missing_payslips_for_month
 import tempfile
 from pathlib import Path
 
-CIF = "B66891201" # TREMENDA BROTHERS SL
+CIF = "B56744949" # ROSSITRUCK
+# CIF = "B66891201" # TREMENDA BROTHERS SL
 # CIF = "B42524694" # TEPUY BURGERS SL
 # DNI = "51774361G"
 # CIF = "B56222938"  # DANIK
@@ -25,20 +26,20 @@ START_DATE = "2025-01-01"
 END_DATE = "2025-11-31"
 
 # MSJ_FILES =[
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_1.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_2.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_3.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_4.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_5.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_6.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_7.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_8.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_9.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_10.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_11.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/JARVIS_12.msj"
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_1.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_2.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_3.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_4.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_5.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_6.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_7.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_8.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_9.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_10.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_11.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_12.msj"
 #                 ]
-MSJ_FILES = []
+MSJ_FILES = ["/Users/albert/repos/valeria/parsing/rossitruck/msj/rossitruck.msj"]
 PDF_FILES = [
              "/path/to/first_file.pdf",
              "/path/to/second_file.pdf"]
@@ -62,30 +63,30 @@ print(f"Inserting company locations for CIF {CIF} into local clients...")
 prod_models.insert_company_locations_into_local_clients(prod_session, CIF)
 print("Done.")
 
-# # CREATE A TEMPORARY DIRECTORY FOR PROCESSING FILES
-# with tempfile.TemporaryDirectory() as temp_dir:
-#     print(f"Using temporary directory: {temp_dir}")
-#     temp_dir_path = str(Path(temp_dir).resolve())
+# CREATE A TEMPORARY DIRECTORY FOR PROCESSING FILES
+with tempfile.TemporaryDirectory() as temp_dir:
+    print(f"Using temporary directory: {temp_dir}")
+    temp_dir_path = str(Path(temp_dir).resolve())
 
-#     # PARSE MSJ FILE
-#     for msj_file in MSJ_PATHS:
-#         import_vida_laboral(msj_file, temp_dir_path)
+    # PARSE MSJ FILE
+    for msj_file in MSJ_PATHS:
+        import_vida_laboral(msj_file, temp_dir_path)
 
-#     # NOW GET THE LIST OF ALL THE CSV FILES GENERATED
-#     csv_files = list(Path(temp_dir_path).glob("*.csv"))
+    # NOW GET THE LIST OF ALL THE CSV FILES GENERATED
+    csv_files = list(Path(temp_dir_path).glob("*.csv"))
 
-#     # PROCESS EACH CSV FILE
-#     for csv_file in csv_files:
-#         result = process_vida_laboral_csv(
-#             csv_path=str(csv_file),
-#             client_identifier=CIF,
-#             create_employees=True
-#         )
+    # PROCESS EACH CSV FILE
+    for csv_file in csv_files:
+        result = process_vida_laboral_csv(
+            csv_path=str(csv_file),
+            client_identifier=CIF,
+            create_employees=True
+        )
 
-#         if result["success"]:
-#             print(f"Successfully processed {csv_file}")
-#         else:
-#             print(f"Failed to process {csv_file}: {result.get('error', 'Unknown error')}")
+        if result["success"]:
+            print(f"Successfully processed {csv_file}")
+        else:
+            print(f"Failed to process {csv_file}: {result.get('error', 'Unknown error')}")
     
 
 # IMPORT EMPLOYEES AND EMPLOYEE PERIODS FROM PRODUCTION DATABASE
@@ -110,13 +111,13 @@ if result["success"]:
 else:
     print(f"Failed to generate report: {result.get('error', 'Unknown error')}") 
 
-new_result = detect_missing_payslips_for_month(session=local_session, client_id=uuid_client, month="11-2025")
+# new_result = detect_missing_payslips_for_month(session=local_session, client_id=uuid_client, month="11-2025")
 
-print("Detect missing payslips for month result:")
-if new_result["success"]:
-    print(f"Missing payslips detected: {new_result.get('missing_payslips', [])}")
-else:
-    print(f"Failed to detect missing payslips: {new_result.get('error', 'Unknown error')}")
+# print("Detect missing payslips for month result:")
+# if new_result["success"]:
+#     print(f"Missing payslips detected: {new_result.get('missing_payslips', [])}")
+# else:
+#     print(f"Failed to detect missing payslips: {new_result.get('error', 'Unknown error')}")
 
 
 # PROCESS PDFS TO EXTRACT PAYSLIPS

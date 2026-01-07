@@ -95,7 +95,34 @@ def _normalize_warnings(warnings: Any) -> Optional[str]:
         return str(warnings)
 
 
-def _validate_structure(payload: Dict[str, Any]) -> List[str]:
+def _normalize_id(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _payroll_context(payroll: Dict[str, Any]) -> str:
+    trabajador = payroll.get("trabajador") if isinstance(payroll, dict) else None
+    dni = trabajador.get("dni") if isinstance(trabajador, dict) else None
+    periodo = payroll.get("periodo") if isinstance(payroll, dict) else None
+    desde = periodo.get("desde") if isinstance(periodo, dict) else None
+    hasta = periodo.get("hasta") if isinstance(periodo, dict) else None
+
+    parts: List[str] = []
+    if dni:
+        parts.append(f"dni={dni}")
+    if desde or hasta:
+        parts.append(f"periodo={desde or '?'}..{hasta or '?'}")
+    if parts:
+        return " (" + ", ".join(parts) + ")"
+    return ""
+
+
+def _validate_structure(
+    payload: Dict[str, Any],
+    session=None,
+    require_employee_match: bool = False,
+) -> List[str]:
     errors: List[str] = []
     payrolls = payload.get("payrolls")
     if not isinstance(payrolls, list):
@@ -106,27 +133,52 @@ def _validate_structure(payload: Dict[str, Any]) -> List[str]:
             errors.append(f"[{idx}] payroll is not an object")
             continue
 
+        context = _payroll_context(payroll)
         missing = [k for k in PAYROLL_REQUIRED_FIELDS if k not in payroll]
         if missing:
-            errors.append(f"[{idx}] missing payroll fields: {', '.join(missing)}")
+            errors.append(
+                f"[{idx}] missing payroll fields: {', '.join(missing)}{context}"
+            )
             continue
 
         if payroll.get("type") not in ALLOWED_PAYROLL_TYPES:
-            errors.append(f"[{idx}] invalid payroll type: {payroll.get('type')!r}")
+            errors.append(
+                f"[{idx}] invalid payroll type: {payroll.get('type')!r}{context}"
+            )
 
         if not isinstance(payroll.get("periodo"), dict):
-            errors.append(f"[{idx}] periodo must be an object")
+            errors.append(f"[{idx}] periodo must be an object{context}")
 
         trabajador = payroll.get("trabajador")
         if not isinstance(trabajador, dict):
-            errors.append(f"[{idx}] trabajador must be an object")
+            errors.append(f"[{idx}] trabajador must be an object{context}")
         else:
-            if not trabajador.get("ss_number"):
+            ss_number = _normalize_id(trabajador.get("ss_number"))
+            dni = _normalize_id(trabajador.get("dni"))
+            if not ss_number and not dni:
                 errors.append(
-                    f"[{idx}] trabajador.ss_number is required to match/create employee"
+                    f"[{idx}] trabajador.ss_number or trabajador.dni is required to match employee{context}"
                 )
+            elif require_employee_match and session is not None:
+                employee = None
+                if ss_number:
+                    employee = (
+                        session.query(Employee).filter_by(ss_number=ss_number).first()
+                    )
+                if employee is None and dni:
+                    employee = (
+                        session.query(Employee)
+                        .filter_by(identity_card_number=dni)
+                        .first()
+                    )
+                if employee is None:
+                    errors.append(
+                        f"[{idx}] no employee match for ss_number={ss_number!r} or dni={dni!r}{context}"
+                    )
             if not trabajador.get("nombre"):
-                errors.append(f"[{idx}] trabajador.nombre is required to create employee")
+                errors.append(
+                    f"[{idx}] trabajador.nombre is required to create employee{context}"
+                )
 
         for field in (
             "devengo_total",
@@ -142,33 +194,35 @@ def _validate_structure(payload: Dict[str, Any]) -> List[str]:
             try:
                 _as_decimal(payroll.get(field))
             except ValueError as exc:
-                errors.append(f"[{idx}] {field}: {exc}")
+                errors.append(f"[{idx}] {field}: {exc}{context}")
 
         lines = payroll.get("payroll_lines")
         if not isinstance(lines, list):
-            errors.append(f"[{idx}] payroll_lines must be a list")
+            errors.append(f"[{idx}] payroll_lines must be a list{context}")
             continue
 
         for line_idx, line in enumerate(lines):
             if not isinstance(line, dict):
-                errors.append(f"[{idx}][line {line_idx}] line is not an object")
+                errors.append(
+                    f"[{idx}][line {line_idx}] line is not an object{context}"
+                )
                 continue
 
             line_missing = [k for k in LINE_REQUIRED_FIELDS if k not in line]
             if line_missing:
                 errors.append(
-                    f"[{idx}][line {line_idx}] missing line fields: {', '.join(line_missing)}"
+                    f"[{idx}][line {line_idx}] missing line fields: {', '.join(line_missing)}{context}"
                 )
                 continue
 
             if line.get("category") not in ALLOWED_LINE_CATEGORIES:
                 errors.append(
-                    f"[{idx}][line {line_idx}] invalid category: {line.get('category')!r}"
+                    f"[{idx}][line {line_idx}] invalid category: {line.get('category')!r}{context}"
                 )
             try:
                 _as_decimal(line.get("amount"))
             except ValueError as exc:
-                errors.append(f"[{idx}][line {line_idx}] amount: {exc}")
+                errors.append(f"[{idx}][line {line_idx}] amount: {exc}{context}")
 
             for bool_field in (
                 "is_taxable_income",
@@ -180,29 +234,30 @@ def _validate_structure(payload: Dict[str, Any]) -> List[str]:
             ):
                 if not isinstance(line.get(bool_field), bool):
                     errors.append(
-                        f"[{idx}][line {line_idx}] {bool_field} must be boolean"
+                        f"[{idx}][line {line_idx}] {bool_field} must be boolean{context}"
                     )
 
     return errors
 
 
 def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
-    ss_number = str(trabajador.get("ss_number")).strip()
-    employee = session.query(Employee).filter_by(ss_number=ss_number).first()
+    ss_number = _normalize_id(trabajador.get("ss_number"))
+    dni = _normalize_id(trabajador.get("dni"))
+
+    employee = None
+    if ss_number:
+        employee = session.query(Employee).filter_by(ss_number=ss_number).first()
     if employee:
         return employee
 
-    first_name, last_name, last_name2 = _parse_full_name(trabajador.get("nombre", ""))
-    employee = Employee(
-        first_name=first_name,
-        last_name=last_name,
-        last_name2=last_name2,
-        identity_card_number=str(trabajador.get("dni")).strip(),
-        ss_number=ss_number,
+    if dni:
+        employee = session.query(Employee).filter_by(identity_card_number=dni).first()
+    if employee:
+        return employee
+
+    raise RuntimeError(
+        f"Employee not found for ss_number={ss_number!r} or dni={dni!r}."
     )
-    session.add(employee)
-    session.flush()
-    return employee
 
 
 def _payroll_exists(session, employee_id: int, periodo: Dict[str, Any], liquido: Decimal) -> bool:
@@ -308,19 +363,19 @@ def main() -> int:
     with open(args.input, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    errors = _validate_structure(payload)
-    if errors:
-        print("Structure validation failed:")
-        for err in errors[:50]:
-            print(f" - {err}")
-        if len(errors) > 50:
-            print(f" ... and {len(errors) - 50} more")
-        return 1
-
     engine = create_database_engine(database_url=args.db_url, echo=False)
     session = get_session(engine)
 
     try:
+        errors = _validate_structure(payload, session=session, require_employee_match=True)
+        if errors:
+            print("Structure validation failed:")
+            for err in errors[:50]:
+                print(f" - {err}")
+            if len(errors) > 50:
+                print(f" ... and {len(errors) - 50} more")
+            return 1
+
         created, skipped, lines_created = _ingest_payrolls(
             session,
             payload["payrolls"],
