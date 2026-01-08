@@ -41,3 +41,4 @@ docs_to_process/**
 docs_to_process_*/**
 processed_documents_*/**
 results_parsing/**
+scripts_tmp/**
