@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from core.normalization import normalize_ssn
 from core.vida_laboral_utils import parse_date, parse_spanish_name
 from core.models import ClientLocation, Employee, EmployeePeriod
 
@@ -43,7 +44,7 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
         first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
     begin_date = parse_date(row.get('f_efecto_alta'))
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Try to find existing employee using priority-based matching
@@ -113,6 +114,19 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
         print(f"ℹ️  Merged ALTA for {row['nombre']} (reuse existing period starting {existing_alta.period_begin_date})")
         return
 
+    # Idempotency: skip if an identical open ALTA already exists (e.g., re-import runs)
+    if begin_date:
+        identical_open_alta = session.query(EmployeePeriod).filter(
+            EmployeePeriod.employee_id == employee.id,
+            EmployeePeriod.location_id == location.id,
+            EmployeePeriod.period_type == 'alta',
+            EmployeePeriod.period_begin_date == begin_date,
+            EmployeePeriod.period_end_date.is_(None),
+        ).first()
+        if identical_open_alta:
+            print(f"ℹ️  Skipping duplicate ALTA for {row['nombre']} starting {begin_date}")
+            return
+
     # Create the ALTA period
     period = EmployeePeriod(
         employee_id=employee.id,
@@ -141,7 +155,7 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
     else:
         first_name, last_name, last_name2 = parse_spanish_name(row['nombre'])
     identity_doc_type = 'NIE' if documento.startswith(('X', 'Y', 'Z')) else 'DNI'
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
     end_date = parse_date(row.get('f_real_sit'))
 
@@ -185,6 +199,23 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
         session.add(location)
         session.flush()
 
+    # Idempotency: if an identical BAJA period already exists, skip.
+    # This prevents duplication when re-importing or when the same logical BAJA row is processed twice.
+    baja_begin_date = parse_date(row.get('f_real_alta'))
+    existing_baja = session.query(EmployeePeriod).filter(
+        EmployeePeriod.employee_id == employee.id,
+        EmployeePeriod.location_id == location.id,
+        EmployeePeriod.period_type == 'baja',
+        EmployeePeriod.period_end_date == end_date,
+        EmployeePeriod.period_begin_date == baja_begin_date,
+    ).first()
+    if existing_baja:
+        print(
+            f"ℹ️  Skipping duplicate BAJA for {row['nombre']} "
+            f"(begin: {baja_begin_date}, end: {end_date})"
+        )
+        return
+
     # Find active ALTA period for this employee and location
     active_period = session.query(EmployeePeriod).filter_by(
         employee_id=employee.id,
@@ -206,7 +237,7 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
         return
 
     # If no active ALTA found, create a terminated period (BAJA without prior ALTA in our system)
-    begin_date = parse_date(row.get('f_real_alta'))
+    begin_date = baja_begin_date
     period = EmployeePeriod(
         employee_id=employee.id,
         location_id=location.id,
@@ -228,7 +259,7 @@ def handle_vacacion(session: Session, client_id: UUID, row: Dict[str, str], cont
     """Record a VAC.RETRIB.NO vacation period."""
     # Remove only the first leading zero if present (not all zeros)
     documento = row['documento'][1:] if row['documento'].startswith('0') else row['documento']
-    ss_number = row.get('naf', '').strip() or None
+    ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
 
     # Find employee using priority-based matching
@@ -263,6 +294,18 @@ def handle_vacacion(session: Session, client_id: UUID, row: Dict[str, str], cont
         location = ClientLocation(company_id=client_id, ccc_ss=location_ccc)
         session.add(location)
         session.flush()
+
+    # Idempotency: skip if an identical vacation period already exists.
+    existing_vacation = session.query(EmployeePeriod).filter(
+        EmployeePeriod.employee_id == employee.id,
+        EmployeePeriod.location_id == location.id,
+        EmployeePeriod.period_type == 'vacaciones',
+        EmployeePeriod.period_begin_date == vacation_start,
+        EmployeePeriod.period_end_date == vacation_end,
+    ).first()
+    if existing_vacation:
+        print(f"ℹ️  Skipping duplicate vacation for {row['nombre']} ({vacation_start} to {vacation_end})")
+        return
 
     # Create vacation period using EmployeePeriod model
     vacation_period = EmployeePeriod(

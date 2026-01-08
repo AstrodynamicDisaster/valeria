@@ -21,10 +21,11 @@ from typing import Mapping, Any
 # Allow running as a script from repo root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import MetaData, Table, select, or_
+from sqlalchemy import MetaData, Table, String, cast, select, or_
 from sqlalchemy.orm import sessionmaker
 
 from core.database import create_database_engine, create_prod_engine
+from core.normalization import normalize_ssn
 import core.vida_laboral as vida_laboral
 from core.vida_laboral import VidaLaboralContext
 from core.models import Client
@@ -56,6 +57,8 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
             company_employees.c.cancel_enrollment_date.label("cancel_enrollment_date"),
             company_employees.c.irpf.label("irpf"),
             company_employees.c.rlce.label("rlce"),
+            company_employees.c.employee_location.label("employee_location"),
+            company_locations.c.id.label("location_id"),
             company_locations.c.ccc.label("ccc_ss"),
             companies.c.name.label("Companies__name"),
             companies.c.cif.label("Companies__cif"),
@@ -65,8 +68,11 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
         .select_from(
             company_employees
             .outerjoin(companies, company_employees.c.company_id == companies.c.id)
-            # Use company_id to bring in any location for the company; CCC is stored there
-            .outerjoin(company_locations, company_employees.c.company_id == company_locations.c.company_id)
+            # Join via employee_location to avoid fanning each employee record out across all company locations.
+            .outerjoin(
+                company_locations,
+                cast(company_employees.c.employee_location, String) == cast(company_locations.c.id, String),
+            )
         )
         .where(
             companies.c.payslips.is_(True),
@@ -100,7 +106,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
     full_surnames = f"{surname1} {surname2}".strip()
 
     return {
-        "naf": (row.get("ss_number") or "").strip(),
+        "naf": normalize_ssn(row.get("ss_number")),
         "documento": (row.get("identity_card_number") or "").strip(),
         # Keep original order for now; downstream may adjust parsing
         "nombre": f"{(row.get('first_name') or '').strip()} {full_surnames}".strip(),
@@ -112,7 +118,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
         "f_efecto_alta": begin_date.isoformat() if begin_date else None,
         "f_real_sit": end_date.isoformat() if end_date else None,
         "codigo_contrato": (row.get("contract_code") or "").strip(),
-        # Production table doesn't expose CCC; leave empty unless provided by query
+        # CCC is resolved via company_employees.employee_location -> company_locations.ccc
         "ccc": (row.get("ccc_ss") or "").strip() if "ccc_ss" in row else "",
     }
 
@@ -134,6 +140,8 @@ def process_prod_query(client_identifier: str, employee_identifier: str | None =
 
         ctx = VidaLaboralContext(create_employees=True)
         row_count = 0
+        rows_skipped_missing_location_ccc = 0
+        seen_company_employee_ids: set[object] = set()
 
         with prod_engine.connect() as conn:
             stmt = build_prod_query(prod_engine, company_identifier=client_identifier, employee_identifier=employee_identifier)
@@ -142,6 +150,30 @@ def process_prod_query(client_identifier: str, employee_identifier: str | None =
                 # Optional: skip if row company doesn't match selected client
                 if row.get("Companies__cif") and row["Companies__cif"] != client.cif:
                     continue
+
+                company_employee_id = row.get("id")
+                if company_employee_id is not None:
+                    if company_employee_id in seen_company_employee_ids:
+                        raise ValueError(
+                            "Prod query returned duplicate rows for the same company_employees.id="
+                            f"{company_employee_id!r}. This usually indicates a join fan-out."
+                        )
+                    seen_company_employee_ids.add(company_employee_id)
+
+                # Option A1: skip rows that cannot be tied to a single CCC via employee_location.
+                ccc = (row.get("ccc_ss") or "").strip()
+                if not ccc:
+                    rows_skipped_missing_location_ccc += 1
+                    print(
+                        "⚠️  Skipping prod employment record with missing CCC/location: "
+                        f"company_employees.id={company_employee_id!r}, "
+                        f"identity={row.get('identity_card_number')!r}, "
+                        f"ss_number={row.get('ss_number')!r}, "
+                        f"employee_location={row.get('employee_location')!r}, "
+                        f"location_id={row.get('location_id')!r}"
+                    )
+                    continue
+
                 mapped = map_row(dict(row))
                 vida_laboral.process_row(target_session, client.id, mapped, ctx)
                 row_count += 1
@@ -150,6 +182,7 @@ def process_prod_query(client_identifier: str, employee_identifier: str | None =
         return {
             "success": True,
             "rows_processed": row_count,
+            "rows_skipped_missing_location_ccc": rows_skipped_missing_location_ccc,
             "employees_created": ctx.employees_created,
             "employees_updated": ctx.employees_updated,
             "periods_created": ctx.periods_created,

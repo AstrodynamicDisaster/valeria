@@ -600,13 +600,13 @@ if __name__ == "__main__":
     # Example usage with dict config
     config = {
         # "input_path": "core/vision_model/tests/sample_docs",  # Change this to your path
-        "input_path": "docs_to_process/",
-        "output_dir": "processed_documents",
+        "input_path": "/Users/albert/repos/valeria/parsing/rossitruck/data/payslips",
+        "output_dir": "/Users/albert/repos/valeria/parsing/rossitruck/raw",
         "provider": "gemini",
         "model": "gemini-3-flash-preview",
         "classification_provider": "gemini",
         "classification_model": "gemini-3-flash-preview",
-        "delay": 3,
+        "delay": 2,
     }
     
     main(config)
