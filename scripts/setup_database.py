@@ -79,7 +79,7 @@ def create_indexes(engine):
             # Create new constraint including liquido_a_percibir
             conn.execute(text("""
                 CREATE UNIQUE INDEX idx_unique_employee_period_amount
-                ON payroll (employee_id, (periodo->>'desde'), (periodo->>'hasta'), liquido_a_percibir)
+                ON payrolls (employee_id, (periodo->>'desde'), (periodo->>'hasta'), liquido_a_percibir)
                 WHERE periodo IS NOT NULL
                   AND periodo->>'desde' IS NOT NULL
                   AND periodo->>'hasta' IS NOT NULL

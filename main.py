@@ -1,4 +1,9 @@
 from requests import session
+import argparse
+import json
+import tempfile
+from pathlib import Path
+
 import core.a3.tools as a3_tools
 from core.models import get_id_by_CIF
 import core.production_models as prod_models
@@ -7,48 +12,69 @@ from scripts.extract_vida_ccc import import_vida_laboral
 from scripts.reprocess_vida_laboral import process_vida_laboral_csv
 from scripts.reprocess_prod_query import process_prod_query
 from scripts.generate_missing_payslips_report import generate_missing_payslips_report_programmatically
+from scripts.ingest_payrolls_mapped import ingest_payrolls_mapped_from_file
 from core.missing_payslips import detect_missing_payslips_for_month
-import tempfile
-from pathlib import Path
 
-# CIF = "B56744949" # ROSSITRUCK
-CIF = "B66891201" # TREMENDA BROTHERS SL
-# CIF = "B42524694" # TEPUY BURGERS SL
-# DNI = "51774361G"
-# CIF = "B56222938"  # DANIK
-# DNI = "04304917F"
-# CIF = "B75604249"  # JARVIS
-# DNI = "Z2435861M"
-# CIF = "B66891201"
-# DNI = "49348529M"
+def _load_config(folder_name: str) -> tuple[str, str, str, Path, Path | None]:
+    base_dir = Path(__file__).resolve().parent
+    parsing_dir = base_dir / "parsing" / folder_name
+    config_path = parsing_dir / "config.json"
 
-START_DATE = "2025-01-01"
-END_DATE = "2025-11-31"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
 
-# MSJ_FILES =[
-#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_1.msj",
-#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_2.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_3.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_4.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_5.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_6.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_7.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_8.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_9.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_10.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_11.msj",
-#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_12.msj"
-#                 ]
-# MSJ_FILES = ["/Users/albert/repos/valeria/parsing/rossitruck/msj/rossitruck.msj"]
-# MSJ_FILES = ["parsing/danik/msj/danik.msj"]
-# MSJ_FILES = ["parsing/danik/msj/danik.msj"]
-MSJ_FILES = ["parsing/tremenda/msj/tremenda_1.msj",
-             "parsing/tremenda/msj/tremenda_2.msj",
-             "parsing/tremenda/msj/tremenda_3.msj"]
+    with config_path.open("r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    cif = config.get("CIF")
+    start_month = config.get("start_date")
+    end_month = config.get("end_date")
+    msj_path = Path(config.get("msj_path", parsing_dir / "msj"))
+    if not msj_path.is_absolute():
+        msj_path = (parsing_dir / msj_path).resolve()
+
+    if not cif or not start_month or not end_month:
+        raise ValueError(f"Config missing CIF/start_date/end_date: {config_path}")
+
+    mappings_dir = None
+    for key in ("mappings_folder", "mappings_path", "mappings_dir", "mappings"):
+        if config.get(key):
+            mappings_dir = Path(config[key])
+            break
+    if mappings_dir is None:
+        mappings_dir = parsing_dir / "mapping"
+    if not mappings_dir.is_absolute():
+        mappings_dir = (parsing_dir / mappings_dir).resolve()
+
+    return cif, start_month, end_month, msj_path, mappings_dir
 
 
-# CONVERT THE PATHS TO ABSOLUTE PATHS
-MSJ_PATHS = [str(Path(path).resolve()) for path in MSJ_FILES]
+def _resolve_msj_paths(msj_dir: Path) -> list[str]:
+    if not msj_dir.exists():
+        raise FileNotFoundError(f"MSJ directory not found: {msj_dir}")
+
+    msj_files = sorted(msj_dir.glob("*.msj"))
+    if not msj_files:
+        raise FileNotFoundError(f"No .msj files found in: {msj_dir}")
+
+    return [str(path.resolve()) for path in msj_files]
+
+
+def _resolve_mapping_files(mappings_dir: Path | None) -> list[Path]:
+    if mappings_dir is None or not mappings_dir.exists():
+        return []
+    candidates = sorted(mappings_dir.glob("*payrolls_mapped*.json"))
+    if not candidates:
+        candidates = sorted(mappings_dir.glob("*mapped*.json"))
+    return [path.resolve() for path in candidates]
+
+
+parser = argparse.ArgumentParser(description="Process MSJ files for a parsing folder.")
+parser.add_argument("folder", help="Folder name under parsing/ (e.g. danik)")
+args = parser.parse_args()
+
+CIF, START_MONTH, END_MONTH, msj_dir, mappings_dir = _load_config(args.folder)
+MSJ_PATHS = _resolve_msj_paths(msj_dir)
 
 # CONNECTING TO PRODUCTION
 print("Connecting to production database...")
@@ -98,14 +124,37 @@ print(f"Production data import result: {prod_logs}")
 
 uuid_client = str(get_id_by_CIF(CIF, local_session).id)
 
+# INGEST MAPPED PAYROLLS (IF PRESENT)
+mapping_files = _resolve_mapping_files(mappings_dir)
+if mapping_files:
+    for mapping_file in mapping_files:
+        print(f"Ingesting mapped payrolls from: {mapping_file}")
+        ingest_result = ingest_payrolls_mapped_from_file(str(mapping_file))
+        if ingest_result.get("success"):
+            print(
+                "Ingest complete: "
+                f"created={ingest_result.get('created')}, "
+                f"skipped={ingest_result.get('skipped')}, "
+                f"lines_created={ingest_result.get('lines_created')}"
+            )
+            if ingest_result.get("skipped_log_path"):
+                print(f"Skipped records saved to: {ingest_result['skipped_log_path']}")
+        else:
+            print(f"Failed to ingest mapped payrolls: {ingest_result.get('error')}")
+else:
+    if mappings_dir is None:
+        print("No mappings folder configured; skipping mapped payrolls ingest.")
+    else:
+        print(f"No mapped payrolls found in: {mappings_dir}")
+
 # GENERATE REPORT FOR REQUIRED PAYSLIPS
 result = generate_missing_payslips_report_programmatically(
         client_id=uuid_client,
         output_format="json",
         save_to_file=True,
         filename=f"{CIF}_report.json",
-        last_month=END_DATE,
-        start_month=START_DATE,
+        last_month=END_MONTH,
+        start_month=START_MONTH,
     )
 
 print("Missing payslips report generation result:")

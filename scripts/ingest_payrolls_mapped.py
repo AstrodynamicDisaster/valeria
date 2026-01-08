@@ -457,6 +457,56 @@ def _ingest_payrolls(
     return created, skipped, lines_created, skipped_records
 
 
+def ingest_payrolls_mapped_from_file(
+    input_path: str,
+    dry_run: bool = False,
+    db_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    with open(input_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    engine = create_database_engine(database_url=db_url, echo=False)
+    session = get_session(engine)
+
+    try:
+        errors = _validate_structure(payload, session=session, require_employee_match=False)
+        if errors:
+            return {
+                "success": False,
+                "error": "Structure validation failed",
+                "errors": errors,
+            }
+
+        created, skipped, lines_created, skipped_records = _ingest_payrolls(
+            session,
+            payload["payrolls"],
+            dry_run=dry_run,
+        )
+        skipped_log_path = None
+        if skipped_records:
+            input_dir = os.path.dirname(input_path) or "."
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            skipped_log_path = os.path.join(input_dir, f"{base_name}_skipped.json")
+            with open(skipped_log_path, "w", encoding="utf-8") as f:
+                json.dump(skipped_records, f, ensure_ascii=False, indent=2)
+        return {
+            "success": True,
+            "created": created,
+            "skipped": skipped,
+            "lines_created": lines_created,
+            "skipped_log_path": skipped_log_path,
+            "dry_run": dry_run,
+        }
+    except IntegrityError as exc:
+        session.rollback()
+        return {"success": False, "error": f"Database integrity error: {exc}"}
+    except Exception as exc:
+        session.rollback()
+        return {"success": False, "error": f"Error ingesting payrolls: {exc}"}
+    finally:
+        session.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest payrolls_mapped.json into the DB.")
     parser.add_argument("input", help="Path to payrolls_mapped.json")
@@ -468,46 +518,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    with open(args.input, "r", encoding="utf-8") as f:
-        payload = json.load(f)
+    result = ingest_payrolls_mapped_from_file(
+        args.input,
+        dry_run=args.dry_run,
+        db_url=args.db_url,
+    )
 
-    engine = create_database_engine(database_url=args.db_url, echo=False)
-    session = get_session(engine)
-
-    try:
-        errors = _validate_structure(payload, session=session, require_employee_match=False)
-        if errors:
+    if not result.get("success"):
+        print(result.get("error", "Unknown error"))
+        if result.get("errors"):
             print("Structure validation failed:")
-            for err in errors[:50]:
+            for err in result["errors"][:50]:
                 print(f" - {err}")
-            if len(errors) > 50:
-                print(f" ... and {len(errors) - 50} more")
-            return 1
-
-        created, skipped, lines_created, skipped_records = _ingest_payrolls(
-            session,
-            payload["payrolls"],
-            dry_run=args.dry_run,
-        )
-        if skipped_records:
-            input_dir = os.path.dirname(args.input) or "."
-            base_name = os.path.splitext(os.path.basename(args.input))[0]
-            log_path = os.path.join(input_dir, f"{base_name}_skipped.json")
-            with open(log_path, "w", encoding="utf-8") as f:
-                json.dump(skipped_records, f, ensure_ascii=False, indent=2)
-    except IntegrityError as exc:
-        session.rollback()
-        print(f"Database integrity error: {exc}")
-        return 2
-    except Exception as exc:
-        session.rollback()
-        print(f"Error ingesting payrolls: {exc}")
-        return 3
-    finally:
-        session.close()
+            if len(result["errors"]) > 50:
+                print(f" ... and {len(result['errors']) - 50} more")
+        return 1
 
     mode = "Dry run" if args.dry_run else "Ingest"
-    print(f"{mode} complete: payrolls created={created}, skipped={skipped}, lines created={lines_created}")
+    print(
+        f"{mode} complete: payrolls created={result['created']}, "
+        f"skipped={result['skipped']}, lines created={result['lines_created']}"
+    )
     return 0
 
 

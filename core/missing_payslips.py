@@ -171,7 +171,8 @@ def detect_missing_payslips(
                 settlement_months=settlement_months,
             )
 
-            finiquito_needed = any(f["finiquito_status"] == "needed" for f in finiquitos)
+            finiquitos_needed = [f for f in finiquitos if f.get("finiquito_status") == "needed"]
+            finiquito_needed = bool(finiquitos_needed)
             if finiquito_needed:
                 employees_needing_finiquito += 1
             for finiquito in finiquitos:
@@ -183,7 +184,7 @@ def detect_missing_payslips(
             if missing_months:
                 employees_with_missing_payslips += 1
 
-            if missing_months or finiquitos:
+            if missing_months or finiquitos_needed:
                 # Get earliest and latest periods for display
                 first_period = periods[0]
                 last_period = periods[-1]
@@ -192,6 +193,7 @@ def detect_missing_payslips(
                     "employee_id": employee.id,
                     "employee_name": full_name,
                     "identity_card_number": employee.identity_card_number,
+                    "ss_number": employee.ss_number,
                     "documento": employee.identity_card_number,  # Alias for report formatting
                     "employment_start": first_period.period_begin_date.strftime('%Y-%m-%d') if first_period else None,
                     "employment_end": last_period.period_end_date.strftime('%Y-%m-%d') if last_period and last_period.period_end_date else "Active",
@@ -199,7 +201,7 @@ def detect_missing_payslips(
                     "processed_months": len(processed_months),
                     "missing_months": missing_months,
                     "missing_count": len(missing_months),
-                    "finiquitos": finiquitos,
+                    "finiquitos": finiquitos_needed,
                     "finiquito_needed": finiquito_needed,
                 }
                 missing_payslips.append(employee_missing)
@@ -337,7 +339,8 @@ def detect_missing_payslips_for_month(
                 settlement_months=settlement_months,
             )
 
-            finiquito_needed = any(f["finiquito_status"] == "needed" for f in finiquitos)
+            finiquitos_needed = [f for f in finiquitos if f.get("finiquito_status") == "needed"]
+            finiquito_needed = bool(finiquitos_needed)
             if finiquito_needed:
                 employees_needing_finiquito += 1
             for finiquito in finiquitos:
@@ -349,7 +352,7 @@ def detect_missing_payslips_for_month(
             if missing_months:
                 employees_with_missing_payslips += 1
 
-            if missing_months or finiquitos:
+            if missing_months or finiquitos_needed:
                 first_period = periods[0]
                 last_period = periods[-1]
 
@@ -357,6 +360,7 @@ def detect_missing_payslips_for_month(
                     "employee_id": employee.id,
                     "employee_name": full_name,
                     "identity_card_number": employee.identity_card_number,
+                    "ss_number": employee.ss_number,
                     "documento": employee.identity_card_number,
                     "employment_start": first_period.period_begin_date.strftime("%Y-%m-%d") if first_period else None,
                     "employment_end": last_period.period_end_date.strftime("%Y-%m-%d") if last_period and last_period.period_end_date else "Active",
@@ -364,7 +368,7 @@ def detect_missing_payslips_for_month(
                     "processed_months": len(processed_months.intersection({expected_month})),
                     "missing_months": missing_months,
                     "missing_count": len(missing_months),
-                    "finiquitos": finiquitos,
+                    "finiquitos": finiquitos_needed,
                     "finiquito_needed": finiquito_needed,
                 }
                 missing_payslips.append(employee_missing)
@@ -443,17 +447,18 @@ def generate_missing_payslips_report(
 
         summary = result["summary"]
         missing_data = result["missing_payslips"]
+        focused_missing = _build_focused_missing_items(missing_data)
 
         report_content = ""
 
         if output_format == "console":
-            report_content = _format_console_report(summary, missing_data)
+            report_content = _format_console_report(summary, focused_missing)
         elif output_format == "csv":
-            report_content = _format_csv_report(missing_data)
+            report_content = _format_csv_report(focused_missing)
         elif output_format == "json":
             report_content = json.dumps({
-                "summary": summary,
-                "missing_payslips": missing_data
+                "summary": _format_focused_summary(summary),
+                "missing_items": focused_missing
             }, indent=2, default=str)
         else:
             return {
@@ -523,6 +528,43 @@ def _generate_expected_months(start_date: date, end_date: date) -> List[Tuple[in
     return expected_months
 
 
+def _format_focused_summary(summary: Dict) -> Dict[str, Any]:
+    return {
+        "analysis_date": summary.get("analysis_date"),
+        "total_employees_analyzed": summary.get("total_employees_analyzed", 0),
+        "employees_with_missing_payslips": summary.get("employees_with_missing_payslips", 0),
+        "total_missing_payslips": summary.get("total_missing_payslips", 0),
+        "employees_with_missing_settlements": summary.get("employees_needing_finiquito", 0),
+        "total_missing_settlements": summary.get("total_finiquitos_needed", 0),
+    }
+
+
+def _build_focused_missing_items(missing_data: List[Dict]) -> List[Dict[str, Any]]:
+    focused = []
+    for emp in missing_data:
+        missing_months = emp.get("missing_months", [])
+        finiquitos = emp.get("finiquitos", [])
+        settlement_months = sorted(
+            {f.get("baja_month") for f in finiquitos if f.get("baja_month")}
+        )
+        focused.append(
+            {
+                "dni_nie": emp.get("identity_card_number") or emp.get("documento"),
+                "ssn": emp.get("ss_number"),
+                "missing_payslips": {
+                    "count": len(missing_months),
+                    "months": missing_months,
+                },
+                "missing_settlements": {
+                    "count": len(settlement_months),
+                    "months": settlement_months,
+                },
+            }
+        )
+
+    return focused
+
+
 def _format_console_report(summary: Dict, missing_data: List[Dict]) -> str:
     """Format missing payslips report for console output"""
     lines = []
@@ -531,51 +573,45 @@ def _format_console_report(summary: Dict, missing_data: List[Dict]) -> str:
     lines.append("")
 
     # Summary section
-    lines.append(f"📈 SUMMARY ({summary['analysis_date']})")
+    focused_summary = _format_focused_summary(summary)
+    lines.append(f"📈 SUMMARY ({focused_summary['analysis_date']})")
     lines.append("-" * 30)
-    lines.append(f"  Total employees analyzed: {summary['total_employees_analyzed']}")
-    lines.append(f"  Employees with missing payslips: {summary['employees_with_missing_payslips']}")
-    lines.append(f"  Total missing payslips: {summary['total_missing_payslips']}")
-    lines.append(f"  Employees needing finiquito: {summary.get('employees_needing_finiquito', 0)}")
-    lines.append(f"  Total finiquitos needed: {summary.get('total_finiquitos_needed', 0)}")
-    lines.append(f"  Total finiquitos satisfied: {summary.get('total_finiquitos_satisfied', 0)}")
+    lines.append(f"  Total employees analyzed: {focused_summary['total_employees_analyzed']}")
+    lines.append(f"  Employees with missing payslips: {focused_summary['employees_with_missing_payslips']}")
+    lines.append(f"  Total missing payslips: {focused_summary['total_missing_payslips']}")
+    lines.append(f"  Employees with missing settlements: {focused_summary['employees_with_missing_settlements']}")
+    lines.append(f"  Total missing settlements: {focused_summary['total_missing_settlements']}")
 
-    if summary['total_employees_analyzed'] > 0:
-        completion_rate = ((summary['total_employees_analyzed'] - summary['employees_with_missing_payslips'])
-                         / summary['total_employees_analyzed'] * 100)
+    if focused_summary["total_employees_analyzed"] > 0:
+        completion_rate = (
+            (focused_summary["total_employees_analyzed"] - focused_summary["employees_with_missing_payslips"])
+            / focused_summary["total_employees_analyzed"]
+            * 100
+        )
         lines.append(f"  Payslip completion rate: {completion_rate:.1f}%")
     lines.append("")
 
     # Detailed section
     if missing_data:
-        lines.append("🔍 DETAILED MISSING PAYSLIPS & FINIQUITOS")
+        lines.append("🔍 DETAILED MISSING ITEMS")
         lines.append("-" * 40)
 
         for emp in missing_data:
-            lines.append(f"\n👤 {emp['employee_name']} ({emp['documento']})")
-            lines.append(f"   Employment: {emp['employment_start']} to {emp['employment_end']}")
-            lines.append(f"   Expected: {emp['expected_months']} | Processed: {emp['processed_months']} | Missing: {emp['missing_count']}")
-
-            # Group missing months by year for readability
-            missing_by_year = {}
-            for month_str in emp['missing_months']:
-                year = month_str.split('-')[0]
-                month = month_str.split('-')[1]
-                if year not in missing_by_year:
-                    missing_by_year[year] = []
-                missing_by_year[year].append(month)
-
-            for year, months in sorted(missing_by_year.items()):
-                months_str = ", ".join(sorted(months))
-                lines.append(f"   📅 {year}: {months_str}")
-
-            if emp.get("finiquitos"):
-                lines.append("   📄 Finiquitos:")
-                for finiquito in emp["finiquitos"]:
-                    status = finiquito.get("finiquito_status", "needed")
-                    lines.append(f"      - {finiquito.get('baja_date')} ({status})")
+            dni_nie = emp.get("dni_nie") or "N/A"
+            ssn = emp.get("ssn") or "N/A"
+            missing_payslips = emp.get("missing_payslips", {})
+            missing_settlements = emp.get("missing_settlements", {})
+            lines.append(f"\n👤 DNI/NIE: {dni_nie} | SSN: {ssn}")
+            lines.append(
+                f"   🧾 Missing payslips: {missing_payslips.get('count', 0)}"
+                f" | Months: {', '.join(missing_payslips.get('months', [])) or 'None'}"
+            )
+            lines.append(
+                f"   📄 Missing settlements: {missing_settlements.get('count', 0)}"
+                f" | Months: {', '.join(missing_settlements.get('months', [])) or 'None'}"
+            )
     else:
-        lines.append("✅ No missing payslips found! All employees have complete records.")
+        lines.append("✅ No missing items found! All employees have complete records.")
 
     return "\n".join(lines)
 
@@ -583,18 +619,17 @@ def _format_console_report(summary: Dict, missing_data: List[Dict]) -> str:
 def _format_csv_report(missing_data: List[Dict]) -> str:
     """Format missing payslips data as CSV"""
     lines = []
-    lines.append("employee_name,documento,employment_start,employment_end,expected_months,processed_months,missing_count,missing_months,finiquito_needed,finiquitos_needed_count,finiquitos_satisfied_count,finiquito_baja_dates")
+    lines.append("dni_nie,ssn,missing_payslips_count,missing_payslips_months,missing_settlements_count,missing_settlements_months")
 
     for emp in missing_data:
-        missing_months_str = "|".join(emp['missing_months'])
-        finiquitos = emp.get("finiquitos", [])
-        finiquitos_needed = [f for f in finiquitos if f.get("finiquito_status") == "needed"]
-        finiquitos_satisfied = [f for f in finiquitos if f.get("finiquito_status") == "satisfied"]
-        finiquito_dates = "|".join(f.get("baja_date", "") for f in finiquitos)
+        missing_payslips = emp.get("missing_payslips", {})
+        missing_settlements = emp.get("missing_settlements", {})
+        missing_months_str = "|".join(missing_payslips.get("months", []))
+        settlement_months_str = "|".join(missing_settlements.get("months", []))
         line = (
-            f"\"{emp['employee_name']}\",{emp['documento']},{emp['employment_start']},{emp['employment_end']},"
-            f"{emp['expected_months']},{emp['processed_months']},{emp['missing_count']},\"{missing_months_str}\","
-            f"{str(emp.get('finiquito_needed', False)).lower()},{len(finiquitos_needed)},{len(finiquitos_satisfied)},\"{finiquito_dates}\""
+            f"{emp.get('dni_nie') or ''},{emp.get('ssn') or ''},"
+            f"{missing_payslips.get('count', 0)},\"{missing_months_str}\","
+            f"{missing_settlements.get('count', 0)},\"{settlement_months_str}\""
         )
         lines.append(line)
 
