@@ -12,41 +12,43 @@ import tempfile
 from pathlib import Path
 
 # CIF = "B56744949" # ROSSITRUCK
-# CIF = "B66891201" # TREMENDA BROTHERS SL
+CIF = "B66891201" # TREMENDA BROTHERS SL
 # CIF = "B42524694" # TEPUY BURGERS SL
 # DNI = "51774361G"
 # CIF = "B56222938"  # DANIK
 # DNI = "04304917F"
-CIF = "B75604249"  # JARVIS
+# CIF = "B75604249"  # JARVIS
 # DNI = "Z2435861M"
 # CIF = "B66891201"
 # DNI = "49348529M"
-MONTH = "2025-11"  # November 2025
+
 START_DATE = "2025-01-01"
 END_DATE = "2025-11-31"
 
-MSJ_FILES =[
-                "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_1.msj",
-                "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_2.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_3.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_4.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_5.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_6.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_7.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_8.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_9.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_10.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_11.msj",
-                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_12.msj"
-                ]
+# MSJ_FILES =[
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_1.msj",
+#                 "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_2.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_3.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_4.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_5.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_6.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_7.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_8.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_9.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_10.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_11.msj",
+#                  "/Users/albert/repos/valeria/parsing/fleets/msj/JARVIS_12.msj"
+#                 ]
 # MSJ_FILES = ["/Users/albert/repos/valeria/parsing/rossitruck/msj/rossitruck.msj"]
-PDF_FILES = [
-             "/path/to/first_file.pdf",
-             "/path/to/second_file.pdf"]
+# MSJ_FILES = ["parsing/danik/msj/danik.msj"]
+# MSJ_FILES = ["parsing/danik/msj/danik.msj"]
+MSJ_FILES = ["parsing/tremenda/msj/tremenda_1.msj",
+             "parsing/tremenda/msj/tremenda_2.msj",
+             "parsing/tremenda/msj/tremenda_3.msj"]
+
 
 # CONVERT THE PATHS TO ABSOLUTE PATHS
 MSJ_PATHS = [str(Path(path).resolve()) for path in MSJ_FILES]
-PDF_PATHS = [str(Path(path).resolve()) for path in PDF_FILES]
 
 # CONNECTING TO PRODUCTION
 print("Connecting to production database...")
@@ -101,8 +103,9 @@ result = generate_missing_payslips_report_programmatically(
         client_id=uuid_client,
         output_format="json",
         save_to_file=True,
-        filename="pipeline_test.json",
-        last_month="11/2025",
+        filename=f"{CIF}_report.json",
+        last_month=END_DATE,
+        start_month=START_DATE,
     )
 
 print("Missing payslips report generation result:")

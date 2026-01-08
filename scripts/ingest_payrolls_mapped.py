@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.database import create_database_engine, get_session
 from core.normalization import normalize_ssn
-from core.models import Employee, Payroll, PayrollLine
+from core.models import Client, ClientLocation, Employee, EmployeePeriod, Payroll, PayrollLine
 
 
 PAYROLL_REQUIRED_FIELDS = [
@@ -102,6 +103,64 @@ def _normalize_id(value: Any) -> str:
     return str(value).strip()
 
 
+def _parse_date(value: Any) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    raw = str(value).strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _resolve_client(session, empresa: Dict[str, Any]) -> Optional[Client]:
+    if not isinstance(empresa, dict):
+        return None
+    cif = (empresa.get("cif") or "").strip()
+    name = (empresa.get("razon_social") or "").strip()
+    if cif:
+        client = session.query(Client).filter_by(cif=cif).first()
+        if client:
+            return client
+    if name:
+        return session.query(Client).filter_by(name=name).first()
+    return None
+
+
+def _has_valid_employee_period(
+    session,
+    employee_id: int,
+    periodo: Dict[str, Any],
+    client_id,
+) -> bool:
+    desde = _parse_date((periodo or {}).get("desde"))
+    hasta = _parse_date((periodo or {}).get("hasta"))
+    if hasta is None:
+        return False
+    period_start = desde or hasta
+    period_end = hasta
+
+    return (
+        session.query(EmployeePeriod.id)
+        .join(ClientLocation, ClientLocation.id == EmployeePeriod.location_id)
+        .filter(
+            EmployeePeriod.employee_id == employee_id,
+            ClientLocation.company_id == client_id,
+            EmployeePeriod.period_begin_date <= period_end,
+            (EmployeePeriod.period_end_date.is_(None))
+            | (EmployeePeriod.period_end_date >= period_start),
+        )
+        .first()
+        is not None
+    )
+
+
 def _payroll_context(payroll: Dict[str, Any]) -> str:
     trabajador = payroll.get("trabajador") if isinstance(payroll, dict) else None
     dni = trabajador.get("dni") if isinstance(trabajador, dict) else None
@@ -147,8 +206,18 @@ def _validate_structure(
                 f"[{idx}] invalid payroll type: {payroll.get('type')!r}{context}"
             )
 
-        if not isinstance(payroll.get("periodo"), dict):
+        periodo = payroll.get("periodo")
+        if not isinstance(periodo, dict):
             errors.append(f"[{idx}] periodo must be an object{context}")
+        else:
+            desde = (periodo.get("desde") or "").strip()
+            hasta = (periodo.get("hasta") or "").strip()
+            if payroll.get("type") == "settlement":
+                if not hasta:
+                    errors.append(f"[{idx}] periodo.hasta is required for settlements{context}")
+            else:
+                if not (desde and hasta):
+                    errors.append(f"[{idx}] periodo.desde and periodo.hasta are required{context}")
 
         trabajador = payroll.get("trabajador")
         if not isinstance(trabajador, dict):
@@ -241,7 +310,7 @@ def _validate_structure(
     return errors
 
 
-def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
+def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Optional[Employee]:
     ss_number = normalize_ssn(trabajador.get("ss_number"))
     dni = _normalize_id(trabajador.get("dni"))
 
@@ -256,9 +325,7 @@ def _find_or_create_employee(session, trabajador: Dict[str, Any]) -> Employee:
     if employee:
         return employee
 
-    raise RuntimeError(
-        f"Employee not found for ss_number={ss_number!r} or dni={dni!r}."
-    )
+    return None
 
 
 def _payroll_exists(session, employee_id: int, periodo: Dict[str, Any], liquido: Decimal) -> bool:
@@ -282,19 +349,59 @@ def _ingest_payrolls(
     payrolls: List[Dict[str, Any]],
     dry_run: bool = False,
     batch_size: int = 200,
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int, int, List[Dict[str, Any]]]:
     created = 0
     skipped = 0
     lines_created = 0
+    skipped_records: List[Dict[str, Any]] = []
 
     for idx, payroll in enumerate(payrolls, start=1):
         trabajador = payroll["trabajador"]
         employee = _find_or_create_employee(session, trabajador)
+        ss_number = normalize_ssn(trabajador.get("ss_number"))
+        dni = _normalize_id(trabajador.get("dni"))
+        empresa = payroll.get("empresa") or {}
+
+        if employee is None:
+            skipped += 1
+            skipped_records.append(
+                {
+                    "index": idx,
+                    "reason": "employee_not_found",
+                    "ss_number": ss_number,
+                    "dni": dni,
+                    "empresa_cif": (empresa.get("cif") or "").strip(),
+                    "empresa_razon_social": (empresa.get("razon_social") or "").strip(),
+                    "periodo_desde": (payroll.get("periodo") or {}).get("desde"),
+                    "periodo_hasta": (payroll.get("periodo") or {}).get("hasta"),
+                    "type": payroll.get("type"),
+                }
+            )
+            continue
+
         if employee.id is None:
             raise RuntimeError("Employee id is None after creation/lookup.")
         employee_id = int(employee.id)
 
         periodo = payroll.get("periodo") or {}
+        client = _resolve_client(session, empresa)
+        if client is None or not _has_valid_employee_period(session, employee_id, periodo, client.id):
+            skipped += 1
+            skipped_records.append(
+                {
+                    "index": idx,
+                    "reason": "invalid_employee_period",
+                    "ss_number": ss_number,
+                    "dni": dni,
+                    "empresa_cif": (empresa.get("cif") or "").strip(),
+                    "empresa_razon_social": (empresa.get("razon_social") or "").strip(),
+                    "periodo_desde": periodo.get("desde"),
+                    "periodo_hasta": periodo.get("hasta"),
+                    "type": payroll.get("type"),
+                }
+            )
+            continue
+
         liquido = _as_decimal(payroll.get("liquido_a_percibir"))
         if _payroll_exists(session, employee_id, periodo, liquido):
             skipped += 1
@@ -347,7 +454,7 @@ def _ingest_payrolls(
     else:
         session.rollback()
 
-    return created, skipped, lines_created
+    return created, skipped, lines_created, skipped_records
 
 
 def main() -> int:
@@ -368,7 +475,7 @@ def main() -> int:
     session = get_session(engine)
 
     try:
-        errors = _validate_structure(payload, session=session, require_employee_match=True)
+        errors = _validate_structure(payload, session=session, require_employee_match=False)
         if errors:
             print("Structure validation failed:")
             for err in errors[:50]:
@@ -377,11 +484,17 @@ def main() -> int:
                 print(f" ... and {len(errors) - 50} more")
             return 1
 
-        created, skipped, lines_created = _ingest_payrolls(
+        created, skipped, lines_created, skipped_records = _ingest_payrolls(
             session,
             payload["payrolls"],
             dry_run=args.dry_run,
         )
+        if skipped_records:
+            input_dir = os.path.dirname(args.input) or "."
+            base_name = os.path.splitext(os.path.basename(args.input))[0]
+            log_path = os.path.join(input_dir, f"{base_name}_skipped.json")
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(skipped_records, f, ensure_ascii=False, indent=2)
     except IntegrityError as exc:
         session.rollback()
         print(f"Database integrity error: {exc}")

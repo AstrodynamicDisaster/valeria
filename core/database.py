@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def create_database_engine(database_url: str = None, echo: bool = True):
+def create_database_engine(database_url: str = None, echo: bool = False):
     """Create database engine from environment or default values"""
     if database_url is None:
         db_host = os.getenv('POSTGRES_HOST', 'localhost')
