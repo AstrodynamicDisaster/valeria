@@ -315,6 +315,13 @@ payslip_example_output = """
    "base": 1557.19,
    "tipo": 0.20,
    "importe": 3.12
+  },
+  {
+   "concepto_raw": "MECANISMO EQUIDAD INTERGENERACIONAL",
+   "concepto_standardized": "MEI",
+   "base": 1557.19,
+   "tipo": 0.67,
+   "importe": 10.43
   }
  ],
  "totales": {
