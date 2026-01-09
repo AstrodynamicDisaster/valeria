@@ -261,9 +261,12 @@ def main_v2(config: Optional[Dict[str, Any]] = None):
         print("❌ No PDF files found")
         return
 
-    # Skip already processed (V2)
+    # Skip already processed (detect by source_pdf field in ANY json)
     processed_pdfs = set()
-    for json_file in output_dir.rglob("V2_*.json"):
+    print(f"🔍 Scanning {output_dir} for already processed documents...")
+    for json_file in output_dir.rglob("*.json"):
+        if json_file.name.startswith("processing_summary_"):
+            continue
         try:
             with open(json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)

@@ -20,6 +20,14 @@ def parse_yyyy_mm_dd(value: Optional[str]) -> Optional[datetime]:
     except ValueError:
         return None
 
+def map_item_v2(item, category):
+    # First apply normalization to the concept names
+    std = (item.get("concepto_standardized") or "").upper()
+    if std in ["PAGA EXTRA", "PAGA EXTRA PRORRATEADA"]:
+        item["concepto_standardized"] = "PAGA EXTRA PRORRATEADA"
+    
+    # Luego llamamos a la función original que ya tienes importada
+    return map_item_to_payroll_line(item, category)
 
 def map_payslip_v2_to_db_format(json_data: Dict[str, Any], source_file: str) -> List[Dict[str, Any]]:
     """
@@ -110,7 +118,7 @@ def map_payslip_v2_to_db_format(json_data: Dict[str, Any], source_file: str) -> 
         # Map line items
         payroll_lines = []
         for item in data.get("devengo_items", []):
-            payroll_lines.append(map_item_to_payroll_line(item, "devengo"))
+            payroll_lines.append(map_item_v2(item, "devengo"))
         for item in data.get("deduccion_items", []):
             payroll_lines.append(map_item_to_payroll_line(item, "deduccion"))
         for item in data.get("aportacion_empresa_items", []):
