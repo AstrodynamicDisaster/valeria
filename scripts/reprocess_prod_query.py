@@ -96,6 +96,7 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
 
 def map_row(row: Mapping[str, Any]) -> dict:
     """Convert a query row mapping to the vida_laboral schema."""
+    identity_card = _normalize_identity_card(row.get("identity_card_number"))
     status = (row.get("employee_status") or "").strip().lower()
     end_date = row.get("end_date")
     situacion = "BAJA" if status != "active" or end_date else "ALTA"
@@ -107,7 +108,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
 
     return {
         "naf": normalize_ssn(row.get("ss_number")),
-        "documento": (row.get("identity_card_number") or "").strip(),
+        "documento": identity_card,
         # Keep original order for now; downstream may adjust parsing
         "nombre": f"{(row.get('first_name') or '').strip()} {full_surnames}".strip(),
         "first_name_raw": (row.get("first_name") or "").strip(),
@@ -121,6 +122,13 @@ def map_row(row: Mapping[str, Any]) -> dict:
         # CCC is resolved via company_employees.employee_location -> company_locations.ccc
         "ccc": (row.get("ccc_ss") or "").strip() if "ccc_ss" in row else "",
     }
+
+
+def _normalize_identity_card(value: Any) -> str:
+    raw = (value or "").strip()
+    if len(raw) == 8 and raw and not raw[0].isalpha():
+        return f"0{raw}"
+    return raw
 
 
 def process_prod_query(client_identifier: str, employee_identifier: str | None = None) -> dict:
