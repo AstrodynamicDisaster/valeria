@@ -36,6 +36,7 @@ def map_item_to_payroll_line(item: Dict[str, Any], category: str) -> Dict[str, A
         "concept": item.get("concepto_standardized") or item.get("concepto_raw", ""),
         "raw_concept": item.get("concepto_raw", ""),
         "amount": float(item.get("importe", 0)),
+        "percentage": item.get("tipo", None),
         "is_taxable_income": item_type.get("ind_tributa_IRPF", False),
         "is_taxable_ss": item_type.get("ind_cotiza_ss", False),
         "is_sickpay": item_type.get("ind_is_IT_IL", False),
@@ -43,6 +44,16 @@ def map_item_to_payroll_line(item: Dict[str, Any], category: str) -> Dict[str, A
         "is_pay_advance": item_type.get("ind_is_anticipo", False),
         "is_seizure": item_type.get("ind_is_embargo", False),
     }
+
+
+def safe_decimal(value, default=0.0):
+    """Convierte valor a float, manejando None"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def map_payslip_json_to_db_format(json_data: Dict[str, Any], source_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -70,6 +81,27 @@ def map_payslip_json_to_db_format(json_data: Dict[str, Any], source_file: Option
         periodo = data.get("periodo", {})
         empresa = data.get("empresa", {})
         trabajador = data.get("trabajador", {})
+
+        def parse_yyyy_mm_dd(value: Optional[str]) -> Optional[datetime]:
+            if not value or not isinstance(value, str):
+                return None
+            try:
+                return datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return None
+
+        # Para settlements sin periodo, derivarlo desde fecha_cese (del 1 del mes hasta fecha_cese)
+        if doc_type == "settlement" and not periodo:
+            fecha_cese_raw = data.get("fecha_cese")
+            fecha_cese_dt = parse_yyyy_mm_dd(fecha_cese_raw)
+            if fecha_cese_dt:
+                desde_dt = fecha_cese_dt.replace(day=1)
+                dias = (fecha_cese_dt - desde_dt).days + 1
+                periodo = {
+                    "desde": desde_dt.strftime("%Y-%m-%d"),
+                    "hasta": fecha_cese_dt.strftime("%Y-%m-%d"),
+                    "dias": dias,
+                }
         
         def parse_yyyy_mm_dd(value: Optional[str]) -> Optional[datetime]:
             if not value or not isinstance(value, str):

@@ -38,4 +38,7 @@ processed_documents/*
 legacy/*
 parsing/*
 docs_to_process/**
-processed_documents_1_page/**
+docs_to_process_*/**
+processed_documents_*/**
+results_parsing/**
+scripts_tmp/**
