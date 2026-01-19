@@ -131,6 +131,18 @@ WHERE complete_year = false
 AND period_year = 2025;
 ```
 
+### Modelo 190 concept mapping (YAML buckets)
+
+```bash
+# Export a YAML template with all concepts in clave A + empty L.* buckets
+python scripts/export_190_concepts.py --bucket-template --out 190_buckets.yml
+
+# Edit 190_buckets.yml, moving concepts into the right buckets and ss_tax_concepts
+
+# Build the JSON mapping consumed by 190.py
+python scripts/export_190_concepts.py --mapping-from 190_buckets.yml --mapping-out 190_mapping.json
+```
+
 ## 🧪 Testing & Development
 
 ### Generate Test Dataset

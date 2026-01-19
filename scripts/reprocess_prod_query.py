@@ -76,7 +76,7 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
         )
         .where(
             companies.c.payslips.is_(True),
-            companies.c.status == "Active",
+            companies.c.status.in_(["Active", "churned", "closed"]),
             or_(companies.c.cif == company_identifier, companies.c.name == company_identifier),
             or_(
                 company_employees.c.employee_status.is_(None),

@@ -122,3 +122,5 @@ With this prologue clear, there are three main tasks:
 2. Identify which parts can be set by default (e.g. pensiones, situación familiar, etc.)
 
 - Generate the proper .txt document with the format required by the spanish tax authority, according to the DISENOS LOGICOS PDF
+
+USE THE spec_190 document and the PDF Disenos logicos as reference as they contain all the info you need.

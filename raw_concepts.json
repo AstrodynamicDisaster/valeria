@@ -1,0 +1,549 @@
+{
+  "generated_at": "2026-01-09T13:58:29.653454Z",
+  "total_lines": 1578,
+  "concepts": [
+    {
+      "normalized": "MEI",
+      "raw_variants": [
+        "MEI"
+      ],
+      "count": 230,
+      "category_counts": {
+        "aportacion_empresa": 115,
+        "deduccion": 115
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": true
+      }
+    },
+    {
+      "normalized": "DESEMPLEO",
+      "raw_variants": [
+        "DESEMPLEO"
+      ],
+      "count": 217,
+      "category_counts": {
+        "aportacion_empresa": 115,
+        "deduccion": 102
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": true
+      }
+    },
+    {
+      "normalized": "FORMACION PROFESIONAL",
+      "raw_variants": [
+        "FORMACIÓN PROFESIONAL"
+      ],
+      "count": 216,
+      "category_counts": {
+        "aportacion_empresa": 115,
+        "deduccion": 101
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "SALARIO BASE",
+      "raw_variants": [
+        "SALARIO BASE"
+      ],
+      "count": 121,
+      "category_counts": {
+        "devengo": 121
+      },
+      "taxable_income_count": 121,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "PAGA EXTRA",
+      "raw_variants": [
+        "PAGA EXTRA"
+      ],
+      "count": 119,
+      "category_counts": {
+        "devengo": 119
+      },
+      "taxable_income_count": 119,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "AT Y EP",
+      "raw_variants": [
+        "AT Y EP"
+      ],
+      "count": 115,
+      "category_counts": {
+        "aportacion_empresa": 115
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "DTO CONT COMUNES",
+      "raw_variants": [
+        "DTO. CONT. COMUNES"
+      ],
+      "count": 115,
+      "category_counts": {
+        "deduccion": 115
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "FONDO GARANTIA SALARIAL",
+      "raw_variants": [
+        "FONDO GARANTÍA SALARIAL"
+      ],
+      "count": 115,
+      "category_counts": {
+        "aportacion_empresa": 115
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "TOTAL CONTINGENCIAS COMUNES PRORRATA PAGAS EXTRAS",
+      "raw_variants": [
+        "TOTAL CONTINGENCIAS COMUNES + PRORRATA PAGAS EXTRAS"
+      ],
+      "count": 115,
+      "category_counts": {
+        "aportacion_empresa": 115
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "HORAS NOCTURNAS",
+      "raw_variants": [
+        "HORAS NOCTURNAS"
+      ],
+      "count": 74,
+      "category_counts": {
+        "devengo": 74
+      },
+      "taxable_income_count": 74,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "RETENCION IRPF",
+      "raw_variants": [
+        "RETENCION IRPF"
+      ],
+      "count": 65,
+      "category_counts": {
+        "deduccion": 65
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "DTO SEGURIDAD SOCIAL",
+      "raw_variants": [
+        "DTO. SEGURIDAD SOCIAL"
+      ],
+      "count": 24,
+      "category_counts": {
+        "deduccion": 24
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "HORAS COMPLEMENTARIAS",
+      "raw_variants": [
+        "HORAS COMPLEMENTARIAS"
+      ],
+      "count": 13,
+      "category_counts": {
+        "devengo": 13
+      },
+      "taxable_income_count": 13,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "RETR ADMINISTRADOR",
+      "raw_variants": [
+        "RETR ADMINISTRADOR"
+      ],
+      "count": 7,
+      "category_counts": {
+        "devengo": 7
+      },
+      "taxable_income_count": 7,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "ENFERMEDAD 60 EMP",
+      "raw_variants": [
+        "ENFERMEDAD 60% EMP."
+      ],
+      "count": 5,
+      "category_counts": {
+        "devengo": 5
+      },
+      "taxable_income_count": 5,
+      "sickpay_count": 5,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "DTO BASE ACCIDENTE",
+      "raw_variants": [
+        "DTO. BASE ACCIDENTE"
+      ],
+      "count": 4,
+      "category_counts": {
+        "deduccion": 4
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "NOCTURNIDAD",
+      "raw_variants": [
+        "NOCTURNIDAD"
+      ],
+      "count": 4,
+      "category_counts": {
+        "devengo": 4
+      },
+      "taxable_income_count": 4,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "VACACIONES NO DISFRUTADAS",
+      "raw_variants": [
+        "VACACIONES NO DISFRUTADAS"
+      ],
+      "count": 3,
+      "category_counts": {
+        "devengo": 3
+      },
+      "taxable_income_count": 3,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "ABSENTISMO",
+      "raw_variants": [
+        "ABSENTISMO"
+      ],
+      "count": 2,
+      "category_counts": {
+        "deduccion": 2
+      },
+      "taxable_income_count": 2,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "COMPLEMENTO I T",
+      "raw_variants": [
+        "COMPLEMENTO I.T."
+      ],
+      "count": 2,
+      "category_counts": {
+        "devengo": 2
+      },
+      "taxable_income_count": 2,
+      "sickpay_count": 2,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "ENFERMEDAD 60 INS",
+      "raw_variants": [
+        "ENFERMEDAD 60% INS."
+      ],
+      "count": 2,
+      "category_counts": {
+        "devengo": 2
+      },
+      "taxable_income_count": 2,
+      "sickpay_count": 2,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "MEJORA VOLUNTARIA",
+      "raw_variants": [
+        "MEJORA VOLUNTARIA"
+      ],
+      "count": 2,
+      "category_counts": {
+        "devengo": 2
+      },
+      "taxable_income_count": 2,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "COTIZACION CONTINGENCIAS COMUNES",
+      "raw_variants": [
+        "COTIZACIÓN CONTINGENCIAS COMUNES"
+      ],
+      "count": 1,
+      "category_counts": {
+        "deduccion": 1
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "COTIZACION DESEMPLEO",
+      "raw_variants": [
+        "COTIZACIÓN DESEMPLEO"
+      ],
+      "count": 1,
+      "category_counts": {
+        "deduccion": 1
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "COTIZACION FORMACION PROFESIONAL",
+      "raw_variants": [
+        "COTIZACIÓN FORMACIÓN PROFESIONAL"
+      ],
+      "count": 1,
+      "category_counts": {
+        "deduccion": 1
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "COTIZACION MEI",
+      "raw_variants": [
+        "COTIZACIÓN MEI"
+      ],
+      "count": 1,
+      "category_counts": {
+        "deduccion": 1
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "ENFERMEDAD 75 INS",
+      "raw_variants": [
+        "ENFERMEDAD 75% INS."
+      ],
+      "count": 1,
+      "category_counts": {
+        "devengo": 1
+      },
+      "taxable_income_count": 1,
+      "sickpay_count": 1,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "PARTE PROPORCIONAL VACACIONES FINIQUITO",
+      "raw_variants": [
+        "PARTE PROPORCIONAL VACACIONES FINIQUITO"
+      ],
+      "count": 1,
+      "category_counts": {
+        "devengo": 1
+      },
+      "taxable_income_count": 1,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "PREAVISO",
+      "raw_variants": [
+        "PREAVISO"
+      ],
+      "count": 1,
+      "category_counts": {
+        "deduccion": 1
+      },
+      "taxable_income_count": 0,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    },
+    {
+      "normalized": "VACACIONES",
+      "raw_variants": [
+        "VACACIONES"
+      ],
+      "count": 1,
+      "category_counts": {
+        "devengo": 1
+      },
+      "taxable_income_count": 1,
+      "sickpay_count": 0,
+      "in_kind_count": 0,
+      "mapping": {
+        "clave": null,
+        "subclave": null,
+        "ss_tax": null
+      }
+    }
+  ]
+}

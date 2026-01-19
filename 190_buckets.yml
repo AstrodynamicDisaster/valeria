@@ -1,0 +1,51 @@
+generated_at: '2026-01-16T15:41:09.657669Z'
+total_lines: 1578
+default_clave: A
+concepts_in_default_clave:
+  devengo:
+  - SALARIO BASE
+  - PAGA EXTRA
+  - HORAS NOCTURNAS
+  - HORAS COMPLEMENTARIAS
+  - RETR ADMINISTRADOR
+  - ENFERMEDAD 60 EMP
+  - NOCTURNIDAD
+  - VACACIONES NO DISFRUTADAS
+  - COMPLEMENTO I T
+  - ENFERMEDAD 60 INS
+  - MEJORA VOLUNTARIA
+  - ENFERMEDAD 75 INS
+  - PARTE PROPORCIONAL VACACIONES FINIQUITO
+  - VACACIONES
+  deduccion:
+  - RETENCION IRPF
+  - ABSENTISMO
+  - PREAVISO
+buckets:
+- clave: L
+  subclave: '01'
+  concepts: []
+- clave: L
+  subclave: '05'
+  concepts: []
+- clave: L
+  subclave: '24'
+  concepts: []
+- clave: L
+  subclave: '25'
+  concepts: []
+- clave: L
+  subclave: '26'
+  concepts: []
+ss_tax_concepts:
+  - COTIZACION CONTINGENCIAS COMUNES
+  - COTIZACION DESEMPLEO
+  - COTIZACION FORMACION PROFESIONAL
+  - COTIZACION MEI
+  - MEI
+  - DESEMPLEO
+  - FORMACION PROFESIONAL
+  - DTO CONT COMUNES
+  - DTO SEGURIDAD SOCIAL
+  - DTO BASE ACCIDENTE
+
