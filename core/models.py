@@ -34,6 +34,7 @@ class Client(Base):
     begin_date = Column(DateTime(timezone=True))
     managed_by = Column(Text)
     payslips: Mapped[bool] = mapped_column(Boolean, default=True)
+    postal_code = Column(Text)
 
     # Legal representative fields (matching production)
     legal_repr_first_name = Column(Text)
@@ -63,6 +64,7 @@ class ClientLocation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id = Column(PGUUID(as_uuid=True), ForeignKey('clients.id', ondelete='CASCADE'), nullable=False)
     ccc_ss = Column(Text, unique=True, nullable=False)  # Código Cuenta Cotización / NAF
+    postal_code = Column(Text)
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())

@@ -90,6 +90,8 @@ All non‑supported sections are explicitly zeroed/blanked:
 - In‑kind blocks, atrasos, IMV, foral split, etc.
 - Ceuta/Melilla flag, ejercicio devengo
 - Children/ascendientes blocks
+- BOE 2025 format fields: pos 389 = 0, pos 390–394 = 00000 (always)
+- Tail blanks now 395–500 (per BOE 2025)
 
 **Datos adicionales** defaults:
 

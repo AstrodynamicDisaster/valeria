@@ -490,13 +490,20 @@ From `p.incapacidad.especie` (only clave **A**):
 
   Sum of these five must equal `RETENCIONES + INGRESOS_CTA` of the same record (95–107 + 122–134).
 
-### 6.9. Acciones empresas emergentes & tail (388–500) 
+### 6.9. Acciones empresas emergentes & tail (388–500)
 
 * **388** – `EXCESOS_ACCIONES_EMERGENTES` (only clave A):
 
   * `1` – if the in‑kind income (108–147) includes startup shares exceeding the exemption.
   * `0` – otherwise.
-* **389–500** – blanks.
+* **389** – `RENDIMIENTOS_GESTION_FONDOS_EMPRENDIMIENTO` (new in BOE‑A‑2025‑25390, clave A only):
+  * `1` – if the record includes those rendimientos (see BOE text).
+  * `0` – otherwise.
+  * **Implementation note:** this generator always writes `0`.
+* **390–394** – `TIPOS_PRESTACION_B01` (new in BOE‑A‑2025‑25390, clave B.01 only):
+  * Five numeric flags (0/1) for the B.01 prestación types.
+  * **Implementation note:** this generator always writes `00000`.
+* **395–500** – blanks.
 
 ---
 
@@ -579,7 +586,13 @@ build_type2_record(decl: Declarant190, p: PerceptorRecordInput) -> string:
   # 388 exceso acciones emergentes
   put(388,388, str(p.excesos_acciones_emergentes or 0))
 
-  # 389–500 already spaces
+  # 389 rendimientos gestion fondos (new 2025 format)
+  put(389,389, "0")
+
+  # 390–394 tipos prestacion B.01 (new 2025 format)
+  put(390,394, "00000")
+
+  # 395–500 already spaces
   return join(buf)
 ```
 

@@ -316,6 +316,7 @@ def insert_company_locations_into_local_clients(
         client.begin_date = prod_company.begin_date
         client.managed_by = prod_company.managed_by
         client.payslips = _coerce_prod_bool(getattr(prod_company, "payslips", True))
+        client.postal_code = prod_company.company_postal_code
 
         client.legal_repr_first_name = prod_company.legal_repr_first_name
         client.legal_repr_last_name1 = prod_company.legal_repr_last_name1
@@ -349,9 +350,14 @@ def insert_company_locations_into_local_clients(
                     continue
                 # Update existing location to point to this client
                 existing_location.company_id = client.id
+                existing_location.postal_code = loc.postal_code
             else:
                 # Create new location
-                location = ClientLocation(company_id=client.id, ccc_ss=ccc)
+                location = ClientLocation(
+                    company_id=client.id,
+                    ccc_ss=ccc,
+                    postal_code=loc.postal_code,
+                )
                 local_session.add(location)
                 locations_created.append(location)
 

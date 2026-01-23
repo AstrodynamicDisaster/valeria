@@ -25,6 +25,11 @@ from core.models import Client, ClientLocation, Employee, EmployeePeriod, Payrol
 
 _DECIMAL_ZERO = Decimal("0.00")
 _EUR_QUANT = Decimal("0.01")
+_MANUAL_G_TARGET = Decimal("0.07")
+_MANUAL_G_TOL = Decimal("0.005")
+_DEFAULT_CONTACT_NAME = "PAU LAPORTE"
+_DEFAULT_CONTACT_PHONE = "620029098"
+_DEFAULT_NUMERO_IDENTIFICATIVO = "1900000000000"
 
 
 @dataclass(frozen=True)
@@ -34,13 +39,24 @@ class ConceptMappingRule:
     concepts: List[str]
 
 
+@dataclass(frozen=True)
+class ManualClaveGEntry:
+    nif: str
+    nombre: str
+    provincia: str
+    percepciones_integras: Decimal
+    retenciones: Decimal
+    fecha: date
+
+
 @dataclass
 class MappingConfig:
     concepts_to_clave_subclave: List[ConceptMappingRule] = field(default_factory=list)
     ss_tax_concepts: List[str] = field(default_factory=list)
-    allowed_claves: Sequence[str] = field(default_factory=lambda: ["A", "L"])
+    manual_clave_g: List[ManualClaveGEntry] = field(default_factory=list)
+    allowed_claves: Sequence[str] = field(default_factory=lambda: ["A", "L", "G"])
     allowed_subclaves_by_clave: Dict[str, Sequence[str]] = field(
-        default_factory=lambda: {"L": ["01", "05", "24", "25", "26"]}
+        default_factory=lambda: {"L": ["01", "05", "24", "25", "26"], "G": ["01", "03"]}
     )
     gastos_deducibles_allocation: str = "clave_a"  # "clave_a" or "proportional"
     allow_gastos_deducibles_claves: Sequence[str] = field(
@@ -279,6 +295,47 @@ def fmt_nif_or_spaces(value: Optional[str]) -> str:
     return fmt_nif(value)
 
 
+def _normalize_manual_nif(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    cleaned = normalize_text(value).replace(" ", "")
+    if len(cleaned) == 8 and cleaned and not cleaned[0].isalpha():
+        cleaned = f"0{cleaned}"
+    return cleaned
+
+
+def _normalize_manual_name(value: Optional[str]) -> str:
+    return " ".join(normalize_text(value or "").split())
+
+
+def _normalize_nif_for_sort(value: Optional[str]) -> str:
+    cleaned = normalize_text(value or "").replace(" ", "")
+    if len(cleaned) == 8 and cleaned and not cleaned[0].isalpha():
+        cleaned = f"0{cleaned}"
+    return cleaned
+
+
+def _parse_manual_date(value: object, label: str) -> date:
+    if value is None or str(value).strip() == "":
+        raise ValueError(f"{label} missing 'fecha'.")
+    raw = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"{label} invalid 'fecha' format: {raw!r}. Use YYYY-MM-DD.")
+
+
+def _postal_to_provincia(postal_code: Optional[str]) -> Optional[str]:
+    if not postal_code:
+        return None
+    cleaned = str(postal_code).strip()
+    if not re.fullmatch(r"\d{5}", cleaned):
+        return None
+    return cleaned[:2]
+
+
 def _json_text(column, key: str):
     value = column[key]
     if hasattr(value, "as_string"):
@@ -298,11 +355,74 @@ def _put(buf: List[str], start: int, end: int, value: str) -> None:
     buf[start - 1 : end] = list(value)
 
 
+def _parse_manual_clave_g_entries(raw_entries: object, default_provincia: str) -> List[ManualClaveGEntry]:
+    if raw_entries in (None, ""):
+        return []
+    if not isinstance(raw_entries, list):
+        raise ValueError("clave G must be a list.")
+    entries: List[ManualClaveGEntry] = []
+    seen: Dict[str, Tuple[str, str]] = {}
+    for idx, entry in enumerate(raw_entries, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"clave G entry {idx} must be a mapping.")
+        nif_raw = entry.get("nif")
+        nif = _normalize_manual_nif(str(nif_raw or "").strip())
+        if not nif:
+            raise ValueError(f"clave G entry {idx} missing 'nif'.")
+        if len(nif) != 9:
+            raise ValueError(f"clave G entry {idx} NIF must be 9 characters after normalization.")
+        nombre = str(entry.get("nombre") or "").strip()
+        if not nombre:
+            raise ValueError(f"clave G entry {idx} missing 'nombre'.")
+        fecha = _parse_manual_date(entry.get("fecha") or entry.get("date"), f"clave G entry {idx}")
+        provincia_raw = entry.get("provincia")
+        if provincia_raw in (None, ""):
+            provincia_raw = entry.get("province")
+        default_g_provincia = "98" if str(default_provincia).strip() == "00" else default_provincia
+        provincia = str(provincia_raw or default_g_provincia).strip()
+        if not provincia.isdigit():
+            raise ValueError(f"clave G entry {idx} provincia must be numeric.")
+        provincia = provincia.zfill(2)
+        percep_raw = entry.get("percepciones_integras")
+        ret_raw = entry.get("retenciones")
+        if percep_raw is None or ret_raw is None:
+            raise ValueError(
+                f"clave G entry {idx} requires 'percepciones_integras' and 'retenciones'."
+            )
+        percepciones = _to_decimal(percep_raw)
+        retenciones = _to_decimal(ret_raw)
+        if percepciones < _DECIMAL_ZERO or retenciones < _DECIMAL_ZERO:
+            raise ValueError(f"clave G entry {idx} has negative amounts.")
+
+        name_key = _normalize_manual_name(nombre)
+        if nif in seen:
+            prev_name, prev_provincia = seen[nif]
+            if name_key != prev_name:
+                raise ValueError(f"clave G entry {idx} NIF '{nif}' has inconsistent nombre.")
+            if provincia != prev_provincia:
+                raise ValueError(f"clave G entry {idx} NIF '{nif}' has inconsistent provincia.")
+        else:
+            seen[nif] = (name_key, provincia)
+
+        entries.append(
+            ManualClaveGEntry(
+                nif=nif,
+                nombre=nombre,
+                provincia=provincia,
+                percepciones_integras=percepciones,
+                retenciones=retenciones,
+                fecha=fecha,
+            )
+        )
+    return entries
+
+
 def load_mapping_config(path: Optional[str]) -> MappingConfig:
     if not path:
         return MappingConfig()
     with open(path, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
+    default_provincia = str(raw.get("default_provincia", "98")).zfill(2)
     concepts_raw = raw.get("concepts_to_clave_subclave", [])
     rules: List[ConceptMappingRule] = []
     for entry in concepts_raw:
@@ -313,21 +433,28 @@ def load_mapping_config(path: Optional[str]) -> MappingConfig:
         subclave = subclave.strip().zfill(2) if isinstance(subclave, str) and subclave.strip() else None
         concepts = entry.get("concepts") or []
         rules.append(ConceptMappingRule(clave=clave, subclave=subclave, concepts=concepts))
-    allowed_claves = [str(val).upper() for val in raw.get("allowed_claves", ["A", "L"])]
+    allowed_claves = [str(val).upper() for val in raw.get("allowed_claves", ["A", "L", "G"])]
     allowed_subclaves = {
         str(key).upper(): [str(val).zfill(2) for val in values]
-        for key, values in raw.get("allowed_subclaves_by_clave", {"L": ["01", "05", "24", "25", "26"]}).items()
+        for key, values in raw.get(
+            "allowed_subclaves_by_clave", {"L": ["01", "05", "24", "25", "26"], "G": ["01", "03"]}
+        ).items()
     }
     allow_gastos = [str(val).upper() for val in raw.get("allow_gastos_deducibles_claves", ["A", "L.05", "L.10", "L.27"])]
+    manual_raw = raw.get("clave G")
+    if manual_raw is None:
+        manual_raw = raw.get("manual_clave_g", [])
+    manual_g_entries = _parse_manual_clave_g_entries(manual_raw, default_provincia)
     config = MappingConfig(
         concepts_to_clave_subclave=rules,
         ss_tax_concepts=raw.get("ss_tax_concepts", []),
+        manual_clave_g=manual_g_entries,
         allowed_claves=allowed_claves,
         allowed_subclaves_by_clave=allowed_subclaves,
         gastos_deducibles_allocation=raw.get("gastos_deducibles_allocation", "clave_a"),
         allow_gastos_deducibles_claves=allow_gastos,
         include_in_kind=bool(raw.get("include_in_kind", False)),
-        default_provincia=str(raw.get("default_provincia", "98")),
+        default_provincia=default_provincia,
     )
     return config
 
@@ -408,6 +535,18 @@ def fetch_payroll_lines_for_cif_period(
         .subquery()
     )
 
+    location_id_subq = (
+        select(EmployeePeriod.location_id)
+        .where(EmployeePeriod.employee_id == Employee.id)
+        .where(EmployeePeriod.period_begin_date <= period_end)
+        .where(
+            or_(EmployeePeriod.period_end_date.is_(None), EmployeePeriod.period_end_date >= payroll_start)
+        )
+        .order_by(EmployeePeriod.period_begin_date.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
     return (
         session.query(
             Payroll.id.label("payroll_id"),
@@ -421,6 +560,8 @@ def fetch_payroll_lines_for_cif_period(
             Employee.last_name2.label("last_name2"),
             Employee.birth_date.label("birth_date"),
             Employee.address.label("address"),
+            ClientLocation.postal_code.label("location_postal_code"),
+            Client.postal_code.label("company_postal_code"),
             PayrollLine.id.label("line_id"),
             PayrollLine.category.label("category"),
             PayrollLine.concept.label("concept"),
@@ -432,6 +573,8 @@ def fetch_payroll_lines_for_cif_period(
         .select_from(PayrollLine)
         .join(Payroll, PayrollLine.payroll_id == Payroll.id)
         .join(Employee, Payroll.employee_id == Employee.id)
+        .outerjoin(ClientLocation, ClientLocation.id == location_id_subq)
+        .outerjoin(Client, Client.id == ClientLocation.company_id)
         .filter(Payroll.id.in_(select(eligible_payrolls.c.payroll_id)))
         .all()
     )
@@ -477,6 +620,77 @@ def _allocate_gastos_deducibles(
                 remaining -= share
 
 
+def _manual_g_subclave(percepciones: Decimal, retenciones: Decimal) -> str:
+    if percepciones <= _DECIMAL_ZERO:
+        return "01"
+    ratio = retenciones / percepciones
+    if abs(ratio - _MANUAL_G_TARGET) <= _MANUAL_G_TOL:
+        return "03"
+    return "01"
+
+
+def _build_manual_g_perceptors(
+    config: MappingConfig,
+    range_start: date,
+    range_end: date,
+) -> List[PerceptorRecordInput]:
+    if not config.manual_clave_g:
+        return []
+
+    grouped: Dict[str, Dict[str, object]] = {}
+    seen: Dict[str, Dict[str, str]] = {}
+    for entry in config.manual_clave_g:
+        if entry.fecha < range_start or entry.fecha > range_end:
+            continue
+        name_key = _normalize_manual_name(entry.nombre)
+        cached = seen.get(entry.nif)
+        if cached:
+            if name_key != cached["name_key"]:
+                raise ValueError(f"Manual clave G NIF '{entry.nif}' has inconsistent nombre.")
+            if entry.provincia != cached["provincia"]:
+                raise ValueError(f"Manual clave G NIF '{entry.nif}' has inconsistent provincia.")
+        else:
+            seen[entry.nif] = {
+                "name_key": name_key,
+                "nombre": entry.nombre,
+                "provincia": entry.provincia,
+            }
+
+        bucket = grouped.get(entry.nif)
+        if bucket:
+            bucket["percepciones"] = bucket["percepciones"] + entry.percepciones_integras
+            bucket["retenciones"] = bucket["retenciones"] + entry.retenciones
+        else:
+            grouped[entry.nif] = {
+                "nombre": entry.nombre,
+                "provincia": entry.provincia,
+                "percepciones": entry.percepciones_integras,
+                "retenciones": entry.retenciones,
+            }
+
+    perceptors: List[PerceptorRecordInput] = []
+    for nif, data in grouped.items():
+        base = _quantize_eur(data["percepciones"])
+        ret = _quantize_eur(data["retenciones"])
+        if base == _DECIMAL_ZERO and ret == _DECIMAL_ZERO:
+            continue
+        subclave = _manual_g_subclave(base, ret)
+        perceptors.append(
+            PerceptorRecordInput(
+                nif_perceptor=nif,
+                nombre_perceptor=str(data["nombre"]),
+                provincia=str(data["provincia"]),
+                clave="G",
+                subclave=str(subclave),
+                dinerario_no_incapacidad=IngresoDinerario(base=base, retencion=ret),
+                ceuta_melilla_flag=0,
+                ejercicio_devengo=0,
+                excesos_acciones_emergentes=0,
+            )
+        )
+    return perceptors
+
+
 def build_perceptor_inputs(
     session: Session,
     company_cif: str,
@@ -490,6 +704,8 @@ def build_perceptor_inputs(
     rows = fetch_payroll_lines_for_cif_period(session, company_cif, range_start, range_end)
 
     employee_info: Dict[int, EmployeeInfo] = {}
+    employee_provincia: Dict[int, str] = {}
+    employee_provincia_rank: Dict[int, int] = {}
     groups: Dict[GroupKey, Aggregation] = {}
     taxable_base_by_payroll: Dict[Tuple[int, str, Optional[str], int, bool], Decimal] = {}
     payroll_tipo_irpf: Dict[int, Decimal] = {}
@@ -509,6 +725,17 @@ def build_perceptor_inputs(
                 birth_date=row.birth_date,
                 address=row.address,
             )
+
+        loc_provincia = _postal_to_provincia(getattr(row, "location_postal_code", None))
+        if loc_provincia:
+            if employee_provincia_rank.get(employee_id, 0) < 2:
+                employee_provincia[employee_id] = loc_provincia
+                employee_provincia_rank[employee_id] = 2
+        else:
+            company_provincia = _postal_to_provincia(getattr(row, "company_postal_code", None))
+            if company_provincia and employee_provincia_rank.get(employee_id, 0) < 1:
+                employee_provincia[employee_id] = company_provincia
+                employee_provincia_rank[employee_id] = 1
 
         payroll_tipo_irpf[payroll_id] = _to_decimal(row.tipo_irpf)
 
@@ -581,6 +808,11 @@ def build_perceptor_inputs(
 
         employee = employee_info[group_key.employee_id]
         name = _build_employee_name(employee)
+        provincia = employee_provincia.get(group_key.employee_id)
+        if not provincia:
+            provincia = str(config.default_provincia).zfill(2)
+        else:
+            provincia = str(provincia).zfill(2)
         datos_adicionales = AdditionalData(
             anio_nacimiento=employee.birth_date.year if employee.birth_date else None,
             situacion_familiar=3,
@@ -611,7 +843,7 @@ def build_perceptor_inputs(
             PerceptorRecordInput(
                 nif_perceptor=employee.nif,
                 nombre_perceptor=name,
-                provincia=str(config.default_provincia).zfill(2),
+                provincia=provincia,
                 clave=group_key.clave,
                 subclave=group_key.subclave,
                 dinerario_no_incapacidad=dinerario_no_it,
@@ -623,7 +855,8 @@ def build_perceptor_inputs(
             )
         )
 
-    perceptors.sort(key=lambda p: (normalize_text(p.nif_perceptor), p.clave, p.subclave or ""))
+    perceptors.extend(_build_manual_g_perceptors(config, range_start, range_end))
+    perceptors.sort(key=lambda p: (_normalize_nif_for_sort(p.nif_perceptor), p.clave, p.subclave or ""))
     return perceptors
 
 
@@ -832,6 +1065,9 @@ def build_type2_record(decl: Declarant190, p: PerceptorRecordInput, config: Mapp
     _put(buf, 322, 322, fmt_numeric_int(p.complemento_ayuda_infancia or 0, 1))
     _build_foral_split(buf, p)
     _put(buf, 388, 388, fmt_numeric_int(p.excesos_acciones_emergentes or 0, 1))
+    # BOE-A-2025-25390 format change: new fields at 389 and 390-394.
+    _put(buf, 389, 389, "0")
+    _put(buf, 390, 394, "00000")
 
     record = "".join(buf)
     if len(record) != 500:
@@ -1129,6 +1365,7 @@ def main() -> int:
     parser.add_argument("--contact-name", help="Contact person full name.")
     parser.add_argument("--contact-phone", help="Contact phone digits.")
     parser.add_argument("--contact-email", help="Contact email.")
+    parser.add_argument("--only-clave-g", action="store_true", help="Only generate clave G records.")
     parser.add_argument(
         "--tipo-declaracion",
         choices=["N", "C", "S"],
@@ -1144,19 +1381,24 @@ def main() -> int:
     config = load_mapping_config(args.mapping)
     range_start, range_end, inferred_year = _resolve_period(args.year, args.date_from, args.date_to)
     ejercicio = args.ejercicio or inferred_year
+    contact_name = args.contact_name or _DEFAULT_CONTACT_NAME
+    contact_phone = args.contact_phone or _DEFAULT_CONTACT_PHONE
+    numero_ident = args.numero_identificativo or _DEFAULT_NUMERO_IDENTIFICATIVO
 
     session = get_session(echo=args.echo_sql)
     try:
         perceptors = build_perceptor_inputs(session, args.cif, range_start, range_end, config)
+        if args.only_clave_g:
+            perceptors = [p for p in perceptors if p.clave == "G"]
         decl = build_declarant_from_cif(
             session,
             args.cif,
             ejercicio,
             perceptors,
-            args.contact_name,
-            args.contact_phone,
+            contact_name,
+            contact_phone,
             args.contact_email,
-            args.numero_identificativo,
+            numero_ident,
             args.tipo_declaracion,
             args.id_declaracion_anterior,
         )

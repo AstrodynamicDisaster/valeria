@@ -15,6 +15,7 @@ import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
 # Ensure repo root is on path
@@ -42,6 +43,7 @@ DEFAULT_BUCKETS = [
     {"clave": "L", "subclave": "25", "concepts": []},
     {"clave": "L", "subclave": "26", "concepts": []},
 ]
+DEFAULT_PROVINCIA = "98"
 
 
 def _require_yaml() -> None:
@@ -81,6 +83,45 @@ def _dedupe_keep_order(values: Iterable[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _normalize_manual_nif(value: Any) -> str:
+    raw = str(value or "").strip().upper().replace(" ", "")
+    if len(raw) == 8 and raw and not raw[0].isalpha():
+        raw = f"0{raw}"
+    return raw
+
+
+def _normalize_manual_name(value: Any) -> str:
+    return " ".join(str(value or "").strip().upper().split())
+
+
+def _normalize_provincia(value: Any, default_provincia: str) -> str:
+    if value is None or str(value).strip() == "":
+        return default_provincia
+    raw = str(value).strip()
+    if not raw.isdigit():
+        raise ValueError(f"Provincia '{raw}' must be numeric.")
+    return raw.zfill(2)
+
+
+def _normalize_manual_date(value: Any) -> str:
+    if value is None or str(value).strip() == "":
+        raise ValueError("clave G entry missing 'fecha'.")
+    raw = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"clave G entry invalid 'fecha' format: {raw!r}. Use YYYY-MM-DD.")
+
+
+def _to_decimal(value: Any, field_name: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError) as exc:
+        raise ValueError(f"Invalid numeric value for '{field_name}': {value!r}") from exc
 
 
 def _collect_concepts() -> tuple[int, list[dict[str, Any]]]:
@@ -179,6 +220,7 @@ def export_bucket_template(output_path: str | None) -> None:
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "total_lines": total_lines,
+        "default_provincia": DEFAULT_PROVINCIA,
         "default_clave": "A",
         "concepts_in_default_clave": {
             "devengo": default_devengo,
@@ -186,6 +228,7 @@ def export_bucket_template(output_path: str | None) -> None:
         },
         "buckets": DEFAULT_BUCKETS,
         "ss_tax_concepts": [],
+        "clave G": [],
     }
 
     output = _dump_yaml(payload)
@@ -236,6 +279,7 @@ def _build_mapping_from_report_payload(payload: dict) -> dict:
 
 
 def _build_mapping_from_bucket_payload(payload: dict) -> dict:
+    default_provincia = _normalize_provincia(payload.get("default_provincia"), DEFAULT_PROVINCIA)
     default_list = payload.get("concepts_in_default_clave", []) or []
     if isinstance(default_list, dict):
         default_list = list(default_list.get("devengo", []) or []) + list(default_list.get("deduccion", []) or [])
@@ -278,12 +322,73 @@ def _build_mapping_from_bucket_payload(payload: dict) -> dict:
 
     ss_tax_raw = payload.get("ss_tax_concepts", []) or []
     ss_tax_concepts = _dedupe_keep_order(_normalize_concepts(ss_tax_raw))
+
+    manual_raw = payload.get("clave G")
+    if manual_raw is None:
+        manual_raw = payload.get("manual_clave_g", [])
+    manual_raw = manual_raw or []
+    if not isinstance(manual_raw, list):
+        raise ValueError("'clave G' must be a list.")
+
+    manual_entries: list[dict[str, Any]] = []
+    seen_manual: dict[str, tuple[str, str]] = {}
+    for idx, entry in enumerate(manual_raw, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"clave G entry {idx} must be a mapping.")
+        nif = _normalize_manual_nif(entry.get("nif"))
+        if not nif:
+            raise ValueError(f"clave G entry {idx} missing 'nif'.")
+        if len(nif) != 9:
+            raise ValueError(f"clave G entry {idx} NIF must be 9 characters after normalization.")
+        nombre = str(entry.get("nombre") or "").strip()
+        if not nombre:
+            raise ValueError(f"clave G entry {idx} missing 'nombre'.")
+        fecha = _normalize_manual_date(entry.get("fecha") or entry.get("date"))
+        percep = entry.get("percepciones_integras")
+        ret = entry.get("retenciones")
+        if percep is None or ret is None:
+            raise ValueError(
+                f"clave G entry {idx} requires 'percepciones_integras' and 'retenciones'."
+            )
+        percep_val = _to_decimal(percep, "percepciones_integras")
+        ret_val = _to_decimal(ret, "retenciones")
+        if percep_val < 0 or ret_val < 0:
+            raise ValueError(f"clave G entry {idx} has negative amounts.")
+        provincia_default = "98" if default_provincia == "00" else default_provincia
+        provincia = _normalize_provincia(entry.get("provincia"), provincia_default)
+
+        name_key = _normalize_manual_name(nombre)
+        if nif in seen_manual:
+            prev_name, prev_prov = seen_manual[nif]
+            if name_key != prev_name:
+                raise ValueError(
+                    f"clave G entry {idx} NIF '{nif}' has inconsistent nombre."
+                )
+            if provincia != prev_prov:
+                raise ValueError(
+                    f"clave G entry {idx} NIF '{nif}' has inconsistent provincia."
+                )
+        else:
+            seen_manual[nif] = (name_key, provincia)
+
+        manual_entries.append(
+            {
+                "nif": nif,
+                "nombre": nombre,
+                "provincia": provincia,
+                "percepciones_integras": str(percep_val),
+                "retenciones": str(ret_val),
+                "fecha": fecha,
+            }
+        )
     return {
         "concepts_to_clave_subclave": [
             {"clave": clave, "subclave": subclave, "concepts": sorted(concepts)}
             for (clave, subclave), concepts in sorted(concepts_to_clave_subclave.items())
         ],
         "ss_tax_concepts": sorted(set(ss_tax_concepts)),
+        "clave G": manual_entries,
+        "default_provincia": default_provincia,
     }
 
 
