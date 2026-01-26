@@ -62,7 +62,7 @@ class MappingConfig:
     allow_gastos_deducibles_claves: Sequence[str] = field(
         default_factory=lambda: ["A", "L.05", "L.10", "L.27"]
     )
-    include_in_kind: bool = False
+    include_in_kind: bool = True
     default_provincia: str = "98"
 
     def build_concept_map(self) -> Dict[str, Tuple[str, Optional[str]]]:
@@ -160,6 +160,10 @@ class Aggregation:
     percepcion_it: Decimal = _DECIMAL_ZERO
     retencion_no_it: Decimal = _DECIMAL_ZERO
     retencion_it: Decimal = _DECIMAL_ZERO
+    especie_no_it_base: Decimal = _DECIMAL_ZERO
+    especie_it_base: Decimal = _DECIMAL_ZERO
+    especie_no_it_ingresos: Decimal = _DECIMAL_ZERO
+    especie_it_ingresos: Decimal = _DECIMAL_ZERO
     gastos_deducibles: Decimal = _DECIMAL_ZERO
     devengo_base_no_it: Decimal = _DECIMAL_ZERO
 
@@ -453,7 +457,7 @@ def load_mapping_config(path: Optional[str]) -> MappingConfig:
         allowed_subclaves_by_clave=allowed_subclaves,
         gastos_deducibles_allocation=raw.get("gastos_deducibles_allocation", "clave_a"),
         allow_gastos_deducibles_claves=allow_gastos,
-        include_in_kind=bool(raw.get("include_in_kind", False)),
+        include_in_kind=True,
         default_provincia=default_provincia,
     )
     return config
@@ -707,7 +711,7 @@ def build_perceptor_inputs(
     employee_provincia: Dict[int, str] = {}
     employee_provincia_rank: Dict[int, int] = {}
     groups: Dict[GroupKey, Aggregation] = {}
-    taxable_base_by_payroll: Dict[Tuple[int, str, Optional[str], int, bool], Decimal] = {}
+    taxable_base_by_payroll: Dict[Tuple[int, str, Optional[str], int, bool, bool], Decimal] = {}
     payroll_tipo_irpf: Dict[int, Decimal] = {}
     ss_tax_by_employee: Dict[int, Decimal] = {}
 
@@ -766,29 +770,41 @@ def build_perceptor_inputs(
         amount = _to_decimal(row.amount)
 
         if category == "devengo":
-            if row.is_sickpay:
-                agg.percepcion_it += amount
+            if row.is_in_kind:
+                if row.is_sickpay:
+                    agg.especie_it_base += amount
+                else:
+                    agg.especie_no_it_base += amount
             else:
-                agg.percepcion_no_it += amount
-                agg.devengo_base_no_it += amount
+                if row.is_sickpay:
+                    agg.percepcion_it += amount
+                else:
+                    agg.percepcion_no_it += amount
+                    agg.devengo_base_no_it += amount
 
             if row.is_taxable_income:
-                key = (employee_id, clave, subclave, payroll_id, bool(row.is_sickpay))
+                key = (employee_id, clave, subclave, payroll_id, bool(row.is_sickpay), bool(row.is_in_kind))
                 taxable_base_by_payroll[key] = taxable_base_by_payroll.get(key, _DECIMAL_ZERO) + amount
 
         elif category == "deduccion":
             if _is_ss_tax(dummy_line, ss_tax_set):
                 ss_tax_by_employee[employee_id] = ss_tax_by_employee.get(employee_id, _DECIMAL_ZERO) + amount
 
-    for (employee_id, clave, subclave, payroll_id, is_sickpay), base in taxable_base_by_payroll.items():
+    for (employee_id, clave, subclave, payroll_id, is_sickpay, is_in_kind), base in taxable_base_by_payroll.items():
         tipo_irpf = payroll_tipo_irpf.get(payroll_id, _DECIMAL_ZERO)
         retention = _quantize_eur(base * tipo_irpf / Decimal("100"))
         group_key = GroupKey(employee_id=employee_id, clave=clave, subclave=subclave)
         agg = groups.setdefault(group_key, Aggregation())
-        if is_sickpay:
-            agg.retencion_it += retention
+        if is_in_kind:
+            if is_sickpay:
+                agg.especie_it_ingresos += retention
+            else:
+                agg.especie_no_it_ingresos += retention
         else:
-            agg.retencion_no_it += retention
+            if is_sickpay:
+                agg.retencion_it += retention
+            else:
+                agg.retencion_no_it += retention
 
     _allocate_gastos_deducibles(groups, ss_tax_by_employee, config.gastos_deducibles_allocation)
 
@@ -801,6 +817,10 @@ def build_perceptor_inputs(
                 agg.percepcion_it,
                 agg.retencion_no_it,
                 agg.retencion_it,
+                agg.especie_no_it_base,
+                agg.especie_it_base,
+                agg.especie_no_it_ingresos,
+                agg.especie_it_ingresos,
             ]
         )
         if not has_amounts:
@@ -830,13 +850,36 @@ def build_perceptor_inputs(
                 retencion=_quantize_eur(agg.retencion_no_it),
             )
 
-        incapacidad = None
+        especie_no_it = None
+        if agg.especie_no_it_base > _DECIMAL_ZERO or agg.especie_no_it_ingresos > _DECIMAL_ZERO:
+            ingresos_especie = _quantize_eur(agg.especie_no_it_ingresos)
+            especie_no_it = IngresoEspecie(
+                base=_quantize_eur(agg.especie_no_it_base),
+                ingreso_cuenta_efectuado=ingresos_especie,
+                ingreso_cuenta_repercutido=ingresos_especie,
+            )
+
+        incapacidad_dineraria = None
         if agg.percepcion_it > _DECIMAL_ZERO or agg.retencion_it > _DECIMAL_ZERO:
+            incapacidad_dineraria = IngresoDinerario(
+                base=_quantize_eur(agg.percepcion_it),
+                retencion=_quantize_eur(agg.retencion_it),
+            )
+
+        incapacidad_especie = None
+        if agg.especie_it_base > _DECIMAL_ZERO or agg.especie_it_ingresos > _DECIMAL_ZERO:
+            ingresos_especie_it = _quantize_eur(agg.especie_it_ingresos)
+            incapacidad_especie = IngresoEspecie(
+                base=_quantize_eur(agg.especie_it_base),
+                ingreso_cuenta_efectuado=ingresos_especie_it,
+                ingreso_cuenta_repercutido=ingresos_especie_it,
+            )
+
+        incapacidad = None
+        if incapacidad_dineraria or incapacidad_especie:
             incapacidad = Incapacidad(
-                dineraria=IngresoDinerario(
-                    base=_quantize_eur(agg.percepcion_it),
-                    retencion=_quantize_eur(agg.retencion_it),
-                )
+                dineraria=incapacidad_dineraria,
+                especie=incapacidad_especie,
             )
 
         perceptors.append(
@@ -847,6 +890,7 @@ def build_perceptor_inputs(
                 clave=group_key.clave,
                 subclave=group_key.subclave,
                 dinerario_no_incapacidad=dinerario_no_it,
+                especie_no_incapacidad=especie_no_it,
                 incapacidad=incapacidad,
                 ceuta_melilla_flag=0,
                 ejercicio_devengo=0,
@@ -897,8 +941,18 @@ def _build_datos_adicionales(buf: List[str], p: PerceptorRecordInput, config: Ma
         return
 
     year = datos.anio_nacimiento or 0
+    if p.clave != "A":
+        year = 0
     _put(buf, 153, 156, fmt_numeric_int(year, 4))
-    situacion = datos.situacion_familiar if datos.situacion_familiar is not None else 3
+    allow_situacion = (
+        p.clave == "A"
+        or p.clave == "C"
+        or (p.clave == "B" and (p.subclave in {"01", "03"}))
+    )
+    if allow_situacion:
+        situacion = datos.situacion_familiar if datos.situacion_familiar is not None else 3
+    else:
+        situacion = 0
     _put(buf, 157, 157, fmt_numeric_int(situacion, 1))
 
     if datos.nif_conyuge:
@@ -1009,6 +1063,9 @@ def build_type2_record(decl: Declarant190, p: PerceptorRecordInput, config: Mapp
     if p.clave in {"B", "C", "E", "F", "G", "H", "I", "K", "L"}:
         subclave_val = p.subclave or ""
         _put(buf, 79, 80, fmt_numeric_int(int(subclave_val or "0"), 2))
+    elif p.clave == "A":
+        # Always emit 00 for clave A subclave positions.
+        _put(buf, 79, 80, "00")
     else:
         _put(buf, 79, 80, "  ")
 
@@ -1291,9 +1348,15 @@ def generate_190_xlsx(decl: Declarant190, config: MappingConfig, output_path: st
         "Subclave",
         "Percepcion no IT",
         "Retencion no IT",
+        "Especie no IT",
+        "Ing. cuenta especie no IT",
+        "Ing. repercutido especie no IT",
         "Gastos deducibles",
         "Percepcion IT",
         "Retencion IT",
+        "Especie IT",
+        "Ing. cuenta especie IT",
+        "Ing. repercutido especie IT",
     ]
     ws.append(header)
 
@@ -1301,6 +1364,8 @@ def generate_190_xlsx(decl: Declarant190, config: MappingConfig, output_path: st
     for row_idx, p in enumerate(decl.percepciones, start=ws.max_row + 1):
         dinerario = p.dinerario_no_incapacidad
         incap = p.incapacidad.dineraria if p.incapacidad else None
+        especie = p.especie_no_incapacidad
+        inc_especie = p.incapacidad.especie if p.incapacidad else None
         gastos = p.datos_adicionales.gastos_deducibles if p.datos_adicionales else _DECIMAL_ZERO
         ws.append(
             [
@@ -1311,12 +1376,18 @@ def generate_190_xlsx(decl: Declarant190, config: MappingConfig, output_path: st
                 p.subclave or "",
                 _as_float(dinerario.base) if dinerario else 0.0,
                 _as_float(dinerario.retencion) if dinerario else 0.0,
+                _as_float(especie.base) if especie else 0.0,
+                _as_float(especie.ingreso_cuenta_efectuado) if especie else 0.0,
+                _as_float(especie.ingreso_cuenta_repercutido) if especie else 0.0,
                 _as_float(gastos),
                 _as_float(incap.base) if incap else 0.0,
                 _as_float(incap.retencion) if incap else 0.0,
+                _as_float(inc_especie.base) if inc_especie else 0.0,
+                _as_float(inc_especie.ingreso_cuenta_efectuado) if inc_especie else 0.0,
+                _as_float(inc_especie.ingreso_cuenta_repercutido) if inc_especie else 0.0,
             ]
         )
-        for col in range(6, 11):
+        for col in range(6, 17):
             ws.cell(row=row_idx, column=col).number_format = currency_format
 
     wb.save(output_path)

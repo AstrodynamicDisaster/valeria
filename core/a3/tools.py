@@ -2,11 +2,22 @@ import requests
 from typing import Any, Optional
 import logging
 import json
-from . import config as Config
-from . import mappings
-#import config as Config
-#import mappings
 from datetime import datetime
+
+try:
+    from . import config as Config
+    from . import mappings
+except ImportError:  # Allow running as a script from anywhere.
+    import os
+    import sys
+
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+    _ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+
+    from core.a3 import config as Config
+    from core.a3 import mappings
 # Import Payroll models from core/models but imagining we are inside the a3 folder
 
 # PAGINATION_DATA
@@ -38,6 +49,8 @@ NIF = "identifierNumber"
 EMPLOYEE_A3_CODE = "employeeCode"
 START_DATE = "periodStartDate"
 END_DATE = "periodEndDate"
+SSN = "ssNAF"
+SSN_FILTER = "ssAffiliationNumber"
 
 
 def get_bearer_token() -> str | None:
@@ -59,10 +72,12 @@ def get_bearer_token() -> str | None:
         token = response.json().get("access_token")
         if token:
                 return f"Bearer {token}"
+
     return None
 
 
 def get_headers() -> dict | None:
+
     try:
         token = get_bearer_token()
     except Exception as e:
@@ -154,6 +169,31 @@ def get_employee_by_dni(company_id: str, dni: str) -> Optional[dict[str, Any]]:
             PAGE_NUMBER: 1,
             PAGE_SIZE: DEFAULT_PAGESIZE,
             "filter": f"contains({NIF},'{dni}')"
+        }
+        response = requests.get(employees_url, headers=headers, params=data)
+
+        if response.status_code != 200:
+            logging.error(f"Error fetching companies: {response.status_code} - {response.text}")
+            return
+        return response.json()[0]
+
+    except Exception as e: 
+        logging.error(f"Unexpected error: {e}")
+
+def get_employee_by_ssn(company_id: str, ssn: str) -> Optional[dict[str, Any]]:
+
+    headers = get_headers()
+
+    try:
+        employees_url = f"{Config.WOLTERS_API_BASE_URL}/{COMPANIES_ENDPOINT}/{company_id}/{EMPLOYEES_ENDPOINT}"
+        # Normalize SSN to XX/XXXXXXXX/XX before filtering (strip non-digits first)
+        ssn_digits = "".join(ch for ch in ssn if ch.isdigit())
+        if len(ssn_digits) >= 4:
+            ssn = f"{ssn_digits[:2]}/{ssn_digits[2:-2]}/{ssn_digits[-2:]}"
+        data = {
+            PAGE_NUMBER: 1,
+            PAGE_SIZE: DEFAULT_PAGESIZE,
+            "filter": f"contains({SSN},'{ssn}')"
         }
         response = requests.get(employees_url, headers=headers, params=data)
 
@@ -306,6 +346,15 @@ def extract_payslip_concepts(concept_list: list)-> list:
     
     return extracted_concepts
 
+def get_employee_ssn(cif: str, dni: str) -> str:
+
+    company_id = get_company_id(cif)
+    employee_data = get_employee_by_dni(company_id, dni)
+
+    raw_ssn = employee_data[SSN]
+    ssn = raw_ssn.replace("/","")
+
+    return ssn
 
 
 # def extract_payslip_internal_concepts():
@@ -662,21 +711,30 @@ if  __name__ == "__main__":
     # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     # import core.production_models as prod_models
 
-    company_cif = "B56222938"
+    # company_cif = "B56222938"
 
-    result = get_company_concepts(company_cif)
-    print("AGREEMENTS RESULT:", result)
-    # Write results in danik_convenios.json
-    with open("danik_convenios.json", "w") as f:
-        json.dump(result, f, indent=4)
+    # result = get_company_concepts(company_cif)
+    # print("AGREEMENTS RESULT:", result)
+    # # Write results in danik_convenios.json
+    # with open("danik_convenios.json", "w") as f:
+    #     json.dump(result, f, indent=4)
 
 
-    agreement_code = "07000835011982"
+    # agreement_code = "07000835011982"
 
-    # Print the output of mappings.get_concept_mapping()
-    concept_mapping = mappings.get_concept_mapping(352)
-    print("CONCEPT MAPPING:", concept_mapping)
+    # # Print the output of mappings.get_concept_mapping()
+    # concept_mapping = mappings.get_concept_mapping(352)
+    # print("CONCEPT MAPPING:", concept_mapping)
 
+
+    company_cif = "B19766534"
+    worker_dni = "47417468R"
+    ssn = get_employee_ssn(company_cif, worker_dni)
+    company_id = get_company_id(company_cif)
+    dni = get_employee_by_ssn(company_id, ssn)
+
+
+    print(dni)
 
 
     # Get company from prod by CIF

@@ -5,7 +5,7 @@ Utility functions for vida laboral CSV processing.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 
 def parse_spanish_name(raw_name: str) -> Tuple[str, str, Optional[str]]:
@@ -48,12 +48,17 @@ def parse_spanish_name(raw_name: str) -> Tuple[str, str, Optional[str]]:
     return first_name, last_name, last_name2
 
 
-def parse_date(value: Optional[str]) -> Optional[date]:
+def parse_date(value: Optional[Union[str, date, datetime]]) -> Optional[date]:
     """Parse common Spanish date formats."""
     if not value:
         return None
 
-    value = value.strip()
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    value = str(value).strip()
     if not value:
         return None
 

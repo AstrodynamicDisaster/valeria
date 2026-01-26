@@ -46,6 +46,7 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
     begin_date = parse_date(row.get('f_efecto_alta'))
     ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
+    birth_date = parse_date(row.get('birth_date'))
 
     # Try to find existing employee using priority-based matching
     employee = None
@@ -66,6 +67,7 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
             identity_card_number=documento,
             identity_doc_type=identity_doc_type,
             ss_number=ss_number,
+            birth_date=birth_date,
         )
         session.add(employee)
         session.flush()  # Get the employee ID
@@ -77,6 +79,10 @@ def handle_alta(session: Session, client_id: UUID, row: Dict[str, str], context:
         context.employees_not_found += 1
         print(f"⚠️  Skipping ALTA for {row['nombre']} ({documento}) - employee not found")
         return
+
+    if birth_date and employee.birth_date != birth_date:
+        employee.birth_date = birth_date
+        context.employees_updated += 1
 
     # Require CCC; skip rows without it (no fallback creation)
     if not location_ccc:
@@ -158,6 +164,7 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
     ss_number = normalize_ssn(row.get('naf'))
     location_ccc = row.get('ccc', '').strip()  # CCC for the company location
     end_date = parse_date(row.get('f_real_sit'))
+    birth_date = parse_date(row.get('birth_date'))
 
     # Find employee using priority-based matching
     employee = None
@@ -178,6 +185,7 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
                 identity_card_number=documento,
                 identity_doc_type=identity_doc_type,
                 ss_number=ss_number,
+                birth_date=birth_date,
             )
             session.add(employee)
             session.flush()
@@ -187,6 +195,10 @@ def handle_baja(session: Session, client_id: UUID, row: Dict[str, str], context:
             context.employees_not_found += 1
             print(f"⚠️  Skipping BAJA for {row['nombre']} ({documento}) - employee not found")
             return
+
+    if birth_date and employee.birth_date != birth_date:
+        employee.birth_date = birth_date
+        context.employees_updated += 1
 
     # Require CCC; skip rows without it (no fallback creation)
     if not location_ccc:

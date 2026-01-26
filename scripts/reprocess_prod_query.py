@@ -50,6 +50,7 @@ def build_prod_query(prod_engine, company_identifier: str, employee_identifier: 
             company_employees.c.begin_date.label("begin_date"),
             company_employees.c.created_at.label("created_at"),
             company_employees.c.id.label("id"),
+            company_employees.c.birth_date.label("birth_date"),
             company_employees.c.enrollment_confirmation.label("enrollment_confirmation"),
             company_employees.c.employee_status.label("employee_status"),
             company_employees.c.contract_code.label("contract_code"),
@@ -102,6 +103,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
     situacion = "BAJA" if status != "active" or end_date else "ALTA"
 
     begin_date = row.get("begin_date")
+    birth_date = row.get("birth_date")
     surname1 = (row.get("last_name") or "").strip()
     surname2 = (row.get("last_name2") or "").strip()
     full_surnames = f"{surname1} {surname2}".strip()
@@ -118,6 +120,7 @@ def map_row(row: Mapping[str, Any]) -> dict:
         "f_real_alta": begin_date.isoformat() if begin_date else None,
         "f_efecto_alta": begin_date.isoformat() if begin_date else None,
         "f_real_sit": end_date.isoformat() if end_date else None,
+        "birth_date": birth_date.isoformat() if birth_date else None,
         "codigo_contrato": (row.get("contract_code") or "").strip(),
         # CCC is resolved via company_employees.employee_location -> company_locations.ccc
         "ccc": (row.get("ccc_ss") or "").strip() if "ccc_ss" in row else "",

@@ -9,10 +9,16 @@ Update a Modelo 190 fixed-width file:
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import sys
+import unicodedata
+from difflib import SequenceMatcher
 from typing import Dict, Tuple
 
 from sqlalchemy import func
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.database import get_session
 from core.models import Client, ClientLocation, Employee, EmployeePeriod
@@ -25,10 +31,16 @@ HEADER_CIF_END = 17        # 1-based 17, end-exclusive in slices
 
 PERCEPTOR_DNI_START = 17   # 1-based 18
 PERCEPTOR_DNI_END = 26     # 1-based 26, end-exclusive in slices
+PERCEPTOR_NAME_START = 35  # 1-based 36
+PERCEPTOR_NAME_END = 75    # 1-based 75, end-exclusive in slices
 PERCEPTOR_PROV_START = 75  # 1-based 76
 PERCEPTOR_PROV_END = 77    # 1-based 77, end-exclusive in slices
 
 RECORD_LENGTH = 500
+NAME_MATCH_THRESHOLD = 0.92
+NAME_MATCH_TIE_MARGIN = 0.005
+
+_NON_ALNUM_RE = re.compile(r"[^A-Z0-9]+")
 
 
 def _split_line_ending(line: str) -> Tuple[str, str]:
@@ -43,6 +55,20 @@ def _extract_digits(value: str) -> str:
     return "".join(ch for ch in value if ch.isdigit())
 
 
+def _normalize_name_key(value: str) -> str:
+    if not value:
+        return ""
+    text = unicodedata.normalize("NFKD", value)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.upper()
+    return _NON_ALNUM_RE.sub("", text).strip()
+
+
+def _format_employee_name(first_name: str, last_name: str, last_name2: str | None) -> str:
+    parts = [last_name, last_name2 or "", first_name]
+    return " ".join(part for part in parts if part).strip()
+
+
 def _flip_num_identificativo(num_id: str) -> str:
     if len(num_id) != 13:
         raise ValueError(f"Header numero_identificativo length != 13: '{num_id}'")
@@ -53,7 +79,7 @@ def _flip_num_identificativo(num_id: str) -> str:
     return f"{num_id[:-1]}1"
 
 
-def _fetch_ccc_for_employee(session, cif: str, dni: str) -> str:
+def _query_ccc_for_employee(session, cif: str, dni: str) -> str | None:
     result = (
         session.query(ClientLocation.ccc_ss)
         .join(Client, Client.id == ClientLocation.company_id)
@@ -64,8 +90,80 @@ def _fetch_ccc_for_employee(session, cif: str, dni: str) -> str:
         .first()
     )
     if not result or not result[0]:
-        raise RuntimeError(f"No CCC found for DNI '{dni}' and CIF '{cif}'")
+        return None
     return result[0]
+
+
+def _query_ccc_for_employee_name(session, cif: str, name_raw: str) -> str | None:
+    name_key = _normalize_name_key(name_raw)
+    if not name_key:
+        return None
+
+    rows = (
+        session.query(
+            Employee.id,
+            Employee.first_name,
+            Employee.last_name,
+            Employee.last_name2,
+            ClientLocation.ccc_ss,
+            EmployeePeriod.period_begin_date,
+            EmployeePeriod.id,
+        )
+        .join(EmployeePeriod, EmployeePeriod.employee_id == Employee.id)
+        .join(ClientLocation, ClientLocation.id == EmployeePeriod.location_id)
+        .join(Client, Client.id == ClientLocation.company_id)
+        .filter(func.upper(Client.cif) == cif)
+        .order_by(EmployeePeriod.period_begin_date.desc(), EmployeePeriod.id.asc())
+        .all()
+    )
+
+    seen_employees = set()
+    exact_matches = []
+    fuzzy_candidates = []
+
+    for row in rows:
+        if row.id in seen_employees:
+            continue
+        seen_employees.add(row.id)
+
+        full_name = _format_employee_name(row.first_name, row.last_name, row.last_name2)
+        candidate_key = _normalize_name_key(full_name)
+        if not candidate_key:
+            continue
+
+        if candidate_key == name_key:
+            exact_matches.append(row)
+            continue
+
+        score = SequenceMatcher(None, name_key, candidate_key).ratio()
+        if score >= NAME_MATCH_THRESHOLD:
+            fuzzy_candidates.append((score, row))
+
+    if len(exact_matches) == 1:
+        return exact_matches[0].ccc_ss
+    if len(exact_matches) > 1:
+        return None
+
+    if not fuzzy_candidates:
+        return None
+
+    fuzzy_candidates.sort(key=lambda item: item[0], reverse=True)
+    best_score = fuzzy_candidates[0][0]
+    tied = [row for score, row in fuzzy_candidates if abs(score - best_score) <= NAME_MATCH_TIE_MARGIN]
+    if len(tied) != 1:
+        return None
+    return tied[0].ccc_ss
+
+
+def _fetch_ccc_for_employee(session, cif: str, dni: str, name_raw: str) -> str:
+    ccc = _query_ccc_for_employee(session, cif, dni)
+    if not ccc and dni.startswith("0") and len(dni) > 1:
+        ccc = _query_ccc_for_employee(session, cif, dni[1:])
+    if not ccc and name_raw:
+        ccc = _query_ccc_for_employee_name(session, cif, name_raw)
+    if not ccc:
+        raise RuntimeError(f"No CCC found for DNI '{dni}' and CIF '{cif}'")
+    return ccc
 
 
 def _update_file_lines(lines: list[str]) -> list[str]:
@@ -105,11 +203,12 @@ def _update_file_lines(lines: list[str]) -> list[str]:
                 dni = dni_raw.strip().upper()
                 if not dni:
                     raise ValueError(f"Line {idx} has empty DNI/NIE")
+                name_raw = content[PERCEPTOR_NAME_START:PERCEPTOR_NAME_END].strip()
 
                 if dni in dni_cache:
                     ccc = dni_cache[dni]
                 else:
-                    ccc = _fetch_ccc_for_employee(session, cif, dni)
+                    ccc = _fetch_ccc_for_employee(session, cif, dni, name_raw)
                     dni_cache[dni] = ccc
 
                 ccc_digits = _extract_digits(ccc)
